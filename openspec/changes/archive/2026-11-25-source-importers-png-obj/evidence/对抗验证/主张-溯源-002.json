@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；spec.md",
+  "anchor": "design.md:28「逐扫描线滤波重建（None/Sub/Up/Average/Paeth 五种）」；tasks.md:9「五种滤波（None/Sub/Up/Average/Paeth）」；spec.md:5「PNG 五种滤波重建」",
+  "claim": "怀疑「五种滤波」是凭空凑数（PNG 可能只有四种，或名称/编号写错）。实测 PNG 规范第 6 章逐条列出 0 None / 1 Sub / 2 Up / 3 Average / 4 Paeth，恰好五种、名称逐字一致，故该说法成立（falsePositive）。",
+  "evidence": "证据-溯源-002.md：RFC 2083 目录第 91-95 行与第 6.2-6.6 节标题原文；Filter type 0..4 的定义。"
+}

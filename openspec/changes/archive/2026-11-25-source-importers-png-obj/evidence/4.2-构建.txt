@@ -1,0 +1,5 @@
+﻿BUILD SUCCESSFUL
+============================================================
+BUILD_EXIT=0
+
+最终代码（含抓窗钩子）复跑：无 env TestSourceImporters pass（NOENV=0）；带 env 抓图 pass（CAP=0，PNG 28149B）；4.1 回归 22 零差异×2 + CoreTests 26 + 基线 0/0/0。

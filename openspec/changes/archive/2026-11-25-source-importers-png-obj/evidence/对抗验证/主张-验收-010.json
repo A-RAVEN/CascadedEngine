@@ -1,0 +1,9 @@
+{
+  "id": "验收-010",
+  "face": "④ 门控与管线",
+  "severity": "Blocking",
+  "claim": "spec 的「重导入替换为新对象」场景要求「② 落盘字节 MUST 与源一致（确定性导入）」（spec.md:43），这对 PNG→CATX / OBJ→CAMH 转换器字面不可能：CATX 是 28 字节头 + RGBA 像素（Texture2D.cs:57-69），CAMH 是 32 字节头 + 顶点/索引（Mesh.cs:64-78），与 .png/.obj 源字节永远不同。该场景要么恒假要么无法执行；tasks 里也没有第二轮扫描/新对象验收（grep 重导入/第二轮/新对象零命中）。",
+  "location": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:40-43；openspec/changes/source-importers-png-obj/tasks.md（无对应条目）",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-010.md",
+  "suggested_fix": "把「② 落盘字节 MUST 与源一致」改成「第二轮落盘字节 MUST 与第一轮（或写死的 CATX/CAMH 期望字节）逐字节相同（确定性导入）」；并加任务：同一源目录第二次 Scan 后，GetResource 返回的指针/句柄与第一轮不同（新对象），旧借用句柄 ReleaseImpl = 1001（旧代理退役），两轮 .tex/.mesh 字节一致。"
+}

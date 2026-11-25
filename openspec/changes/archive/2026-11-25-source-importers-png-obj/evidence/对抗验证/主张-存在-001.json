@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-001",
+  "face": "真实存在性",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/proposal.md；openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "proposal.md:11「管线（ResourceManagingSystem.ScanSourceDirectory）拉取 Produce 迭代器→注册→SerializeAll 落盘。门控默认关。」；design.md:5「管线 `ResourceManagingSystem.ScanSourceDirectory` 拉取→包 shared_ptr→注册→SerializeAll 落盘→重导入替换」",
+  "problem": "工件把管线方法写成 `ResourceManagingSystem.ScanSourceDirectory`，这个限定成员不存在。`ScanSourceDirectory` 是 `resource_management::ResourceImportingSystem` 的纯虚方法（`GeneralResources/header/CAResource/ResourceImportingSystem.h:14`，实现 `GeneralResources/private/ResourceImportingSystem.cpp:40`）；`ResourceManagingSystem` 的完整头（102 行）里没有该方法、没有继承、没有别名。测试里的真实调用对象也是 `ctx.pImportingSystem`（`ResourceImportingSystem*`，`Main.cpp:162`），调用点 `Main.cpp:8887` / `10588`。按工件字面在 `ResourceManagingSystem` 上找 `ScanSourceDirectory` 会 0 命中。tasks.md 与 design.md 其余处写的是裸方法名 `ScanSourceDirectory`，是对的；只有这两处类限定名写错。",
+  "evidence": "见 `证据-存在-001.md`：① 全读 `ResourceManagingSystem.h`（102 行）无 `ScanSourceDirectory`；② `Select-String` 该头文件零命中；③ `ResourceImportingSystem.h:14` 与 `.cpp:40` 逐字命中；④ `Main.cpp:162` 的 `pImportingSystem` 类型是 `ResourceImportingSystem*`，`:8887` / `:10588` 是真实调用点；⑤ 两处工件原文逐字引用。",
+  "suggestion": "把 proposal.md:11 与 design.md:5 的 `ResourceManagingSystem.ScanSourceDirectory` 改成 `ResourceImportingSystem.ScanSourceDirectory`（或直接写裸方法名 `ScanSourceDirectory`，与 tasks.md 一致）。只改这两处限定名，不放松任何验收判据。"
+}

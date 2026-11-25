@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md",
+  "anchor": "落盘文件经 `Texture2D.Parse` 读回 MUST 与源 PNG 解码像素逐字一致；落盘经 `Mesh.Parse` 读回顶点/索引 MUST 与写死期望逐字一致",
+  "problem": "既有生效规范 resource-importer 写死「C# 资源 MUST 只验 Serialize 写+注册+GetResource 同一实例，MUST NOT 验加载回读；加载回读只对 C++ 对照资源（TResource）」。本 change 的新规范把「读回落盘文件」加进 MUST，而 proposal 的 Modified Capabilities 写着「无（复用 resource-importer ……不改其要求）」。两边直接对撞：要么新规范违反既有规范，要么既有规范被本批悄悄改掉而 proposal 不承认。新规范也没有把「裸字节自解析、不走注册表 Deserialize」这层区别写出来，无法据此判断是否落入禁令。",
+  "evidence": "`openspec/specs/resource-importer/spec.md` 第 63 行逐字：「IResource Deserialize 被 CA_BIND_SKIP（代理抛 1013），C# 资源 MUST 只验 Serialize 写+注册+GetResource 同一实例，MUST NOT 验加载回读；加载回读只对 C++ 对照资源（TResource）。」`CSharpHost/README.md` 第 337 行逐字：「读回路径仍走 `TResource`。」新 spec 第 5 行与第 19 行分别写「落盘文件经 `Texture2D.Parse` 读回 MUST …」「落盘经 `Mesh.Parse` 读回顶点/索引 MUST …」；proposal 第 23 行写「无（复用 resource-importer / csharp-resource-factory / csharp-resource-registry 既有规范，不改其要求；导入器是新增 C# 实现，不动接口/生成器）」。",
+  "suggestion": "二选一并写进工件：① proposal 的 Modified Capabilities 增列 `resource-importer`，并在 spec 里加一条 MODIFIED Requirement，明确「允许对**落盘原始字节**做 C# 自解析核对；MUST NOT 走注册表 Deserialize / GetOrLoadResource 的加载回读」；② 删掉新 spec 里的 `Texture2D.Parse` / `Mesh.Parse` 读回判据，改用 C++ 读落盘字节（方案 B），并在 evidence 里保留「不验加载回读」的原判据。"
+}

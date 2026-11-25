@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-003",
+  "face": "真实存在性",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md；openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "tasks.md:20「tester 用例 `TestSourceImporters`（Main.cpp + --list 登记，独立进程）：……断言 ② 落盘存在 + Texture2D.Parse/Mesh.Parse 读回像素/顶点/索引==写死期望（逐字节）」；spec.md:5「落盘文件经 `Texture2D.Parse` 读回 MUST 与源 PNG 解码像素逐字一致」；spec.md:10「Texture2D.Parse 读回宽/高/格式/像素 MUST 等于写死期望」；spec.md:19「落盘经 `Mesh.Parse` 读回顶点/索引 MUST 与写死期望逐字一致」；design.md:44 同（「Texture2D.Parse/Mesh.Parse 读回」）",
+  "problem": "点名的读回方法是托管程序集的 internal 成员，而点名的断言位置是 C++ 的 `Main.cpp` 测试进程——调不到。`Texture2D.Parse` 是 `internal static Payload Parse(byte[] bytes, string sourcePath)`（`Texture2D.cs:75`），返回类型 `Texture2D.Payload` 也是 `internal readonly struct`（`Texture2D.cs:41`）；`Mesh.Parse` 同样是 `internal`（`Mesh.cs:84`，`Mesh.Payload` 见 `:48`）；`Scripting.Managed` 里没有 `InternalsVisibleTo`（全目录检索 0 命中），C++ 测试也没有调用 internal 托管方法的入口：`Host.cs` 暴露给原生侧的只有 `[UnmanagedCallersOnly]` 的 `Boot` / `Shutdown` / `Tick` 等固定入口（`Host.cs:18`「所有入口都是 [UnmanagedCallersOnly] 静态方法」），没有通用反射/调用通道。公开面里 `Texture2D` / `Mesh` 只有 public 字段与 `Serialize()`；唯一公开读盘入口 `AssetDatabase.Load` 需要先构造 `IResourceRegistry` 门面、且语义是「释放旧条目→新建→填数据」，不是只读回。工件也没有新增「由托管侧探针调用 Parse 并写读数文件」的任务（`ResourceAssetProbe` / `ResourceImporterProbe` 是前两批的产物，本批 tasks 未列）。因此 tasks 3.1 照字面不可执行；把断言改成「Main.cpp 直接读文件字节」又不是规范点名的 `Parse` 读回。",
+  "evidence": "见 `证据-存在-003.md`：① `Texture2D.cs:41/75` 与 `Mesh.cs:48/84` 的 `internal` 原文；② `InternalsVisibleTo` 全目录 0 命中；③ `Host.cs:18` 与 `[UnmanagedCallersOnly]` 入口清单（Boot/Shutdown/Tick 等），无 Parse 入口；④ `AssetDatabase.Load` 的公开签名与「先解析、后释放旧条目、再 Create」语义（`AssetDatabase.cs:49-62`）；⑤ 本批 tasks 没有新增 C# 探针任务（tasks.md 全文任务 1.1-4.2）；⑥ spec/tasks/design 的 `Parse` 原文。",
+  "suggestion": "二选一写死：① 新增一条任务——在 `Scripting/Managed` 加只读回探针（照 `ResourceAssetProbe` 的门控 + 读数文件模式），在托管侧调 `Texture2D.Parse`/`Mesh.Parse`，把宽高/格式/像素/顶点/索引读数写到文件，`Main.cpp` 只核读数；② 把 spec/tasks 的读回入口改成公开 API（`AssetDatabase.Load` 或新增一个 public 只读回方法），并同步「经 Parse 读回」的全部措辞与验收判据。若新增 public API，需同时说明绑定产物是否变化（本批的「绑定逐字节不变」判据会受影响，必须写清）。"
+}

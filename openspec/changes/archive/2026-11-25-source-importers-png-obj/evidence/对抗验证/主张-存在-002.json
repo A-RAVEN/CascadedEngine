@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-002",
+  "face": "真实存在性",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "design.md:21「门控 `CASCADED_SOURCE_IMPORTERS=1`（默认关，Host.Tick 里 EnsureBound 后调；零行为不影响现有用例）」；tasks.md:16「门控接入 Host.cs（EnsureBound 后调两导入器 Tick，默认关零行为）+ 管线 ScanSourceDirectory 拉取注册落盘（复用既有管线，不改接口）。验收：……门控开导入→② CAAssets/Textures/*.tex + Meshes/*.mesh 落盘 + HasResource 真。」",
+  "problem": "「C# 侧造出导入器」到「C++ 管线拉取它」之间没有通道，工件也没有安排这条通道的任务。① `AddImporter` 只声明在 C++ `ResourceImportingSystem.h:13`、实现在 `.cpp:33`；`out/build/x64-debug/codegen/bindings/` 里没有任何 `ResourceImporting*` 生成物，`Scripting/Managed` 里 `AddImporter` 0 命中，门面 `IResourceRegistry` 九方法也没有注册导入器。② 唯一先例 `TestCSharpImporter` 是 C++ 侧驱动的：C# 把强句柄写进读数文件（`ResourceImporterProbe.cs:241-245`，键 `importer_handle`），C++ 读该文件（`Main.cpp:8852`）→ `ResolveImpl`（`:8873`）→ `AddImporter`（`:8881`）→ `ScanSourceDirectory`（`:8887`）。③ 本 change 只写「Host.Tick 里调」+「管线 ScanSourceDirectory 拉取注册落盘（不改接口）」，没有任务写 C# 句柄出口、也没有任务写 C++ 侧 `ResolveImpl`/`AddImporter`/`ScanSourceDirectory` 接线；`CASCADED_SOURCE_IMPORTERS` 当前全仓 0 命中（新门控）。后果：按字面实现后，门控开只会在托管侧造出对象，C++ 的 `m_ResourceImporters` 里没有它，`ScanSourceDirectory` 不会调它的 `Produce`，tasks 2.3 / 3.1 的「② 落盘 + HasResource 真」不可能成立。",
+  "evidence": "见 `证据-存在-002.md`：① `ResourceImportingSystem.h:13` / `.cpp:33` 的 `AddImporter` 原文；② 生成绑定目录与 `Scripting/Managed` 对 `ResourceImporting` / `AddImporter` 零命中的命令与输出；③ `IResourceRegistry.h` 九方法列表（无导入器注册）；④ `CSharpHost/README.md:51` 与 `:379` 写明「原生侧 ResolveImpl 后交给 ResourceImportingSystem::AddImporter」；⑤ `Main.cpp:8850-8887` 的完整先例（读数文件拿句柄→ResolveImpl→AddImporter→ScanSourceDirectory）；⑥ tasks/design 原文。",
+  "suggestion": "补两条任务并改写验收依赖：① C# 侧导入器创建后把强句柄（加门控/标签读数）写到约定读数文件（照 ResourceImporterProbe 的 `CASCADED_CSHARP_IMPORTER_READINGS` 模式）；② tester 用例照 TestCSharpImporter 先例读句柄 → `ResolveImpl` → `AddImporter` → `ScanSourceDirectory`。tasks 2.3 的「门控开导入→落盘」验收必须排在②之后，或拆成「C# 侧创建成功」与「管线拉取落盘」两条。若希望门控一开就自动进管线，则要新增可绑定的注册入口（会改接口，与「不改接口」冲突，二者只能选一写死）。"
+}

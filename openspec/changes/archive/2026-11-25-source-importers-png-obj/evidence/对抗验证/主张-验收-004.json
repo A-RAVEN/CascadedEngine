@@ -1,0 +1,9 @@
+{
+  "id": "验收-004",
+  "face": "③ 红态与异常可观测性",
+  "severity": "Blocking",
+  "claim": "红态写的是「坏 PNG/坏 OBJ→AssetFormatException 点名」，但 C++ Tester 观测不到 AssetFormatException 这个类型：CSharpHost README 的失败契约写「C# 覆写抛的异常在托管桥里被捕获（不穿过 C ABI）……下一次注册线程调用抛 cascaded_reverse::ReverseBindingError（Code() = 1012，消息含原始异常文本）」；导入器 Produce 抛异常后，管线在空 productions 分支的 GetTags 调用上（或其它后续调用上）收到 1012，要么只打 WARN 后继续（ResourceImportingSystem.cpp:69-76）再 SerializeAll（:96）；两种情况下 C++ 都看不到 AssetFormatException 类型。tasks 3.1 没有为托管异常指定 C# 捕获/读数通道，照字面断言类型会拿不到，按 1012 断言又与「AssetFormatException」字面不符。",
+  "location": "openspec/changes/source-importers-png-obj/tasks.md:20；openspec/changes/source-importers-png-obj/design.md:40；CSharpHost/README.md:328-331；GeneralResources/private/ResourceImportingSystem.cpp:69-96",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-004.md",
+  "suggested_fix": "在导入器里对坏文件捕获 AssetFormatException，把 error_type=AssetFormatException 与 error_text（含文件名+原因）写入 CASCADED_SOURCE_IMPORTERS_READINGS 后再抛（不吞）；C++ 断言 error_type 与文本。若坚持在 C++ 侧看异常，则把期望改成 1012 的 ReverseBindingError 且 what() 含 AssetFormatException 原文。两种都写进 tasks 3.1，并明确「MUST NOT 静默」用读数与文件系统双断言。"
+}

@@ -386,6 +386,29 @@ ulong handle = ResourceImporterBindings.Create(new MyImporter());
 `GCHandle.Free`，`ReverseKeepAliveCount` 从 1 归 0，旧句柄重复释放报 1001。**MUST NOT 用
 `ResolveImpl` 处理新对象**（新对象还没有代理/借用句柄，必须 `CreateProxy`）。
 
+### 源导入器（PNG 贴图 / OBJ 网格，`source-importers-png-obj`）
+
+`Scripting/Managed/Assets/Importers/` 下有两个真实的 `ResourceImporterBase` 实现：`PngTextureImporter`
+（`.png` → RGBA8 `Texture2D`，纯 C# 解码：全部 IDAT 拼一条 zlib 流 + 逐块 CRC32 + adler32 尾校验 +
+五种滤波重建，不支持的位深/颜色类型/隔行明确拒绝）与 `ObjMeshImporter`（`.obj` → `Mesh`：位置 float3 +
+写死白色 float3 的 stride 24 布局，四边面扇形三角化）。两者都**直接 new 资产交迭代器、不调注册表、
+不经工厂 / AssetDatabase**；② 路径是源相对路径镜像 + 扩展名替换（`Images/A/Test.png` →
+`Images/A/Test.tex`、`Models/B.obj` → `Models/B.mesh`），注册 / 落盘由管线
+`ResourceImportingSystem::ScanSourceDirectory` 做。
+
+**接入仍是测试驱动**（C# 侧没有 `AddImporter` / `ScanSourceDirectory` 绑定，与上面的导入器探针同一条
+路）：门控 `CASCADED_SOURCE_IMPORTERS=1` 时 `Host.Tick` 调 `SourceImporterDriver` 绑三张反向表，再用
+`ResourceImporterBindings.Create` 造两个导入器的强句柄写进读数文件；`TestSourceImporters`（**独立
+进程**用例，不进全量顺序跑）读句柄 → `ResolveImpl` → `ResourceImportingSystem::AddImporter` →
+`ScanSourceDirectory`。源根由 `CASCADED_SOURCE_IMPORTERS_DIR` 声明（默认工程内 `CAResources/`，测试传
+临时绝对路径隔离）。默认关：不绑表、不建导入器、不写读数、不落盘。
+
+**视觉验收抓窗（3.2）**：`TestSourceImporters` 还读一个**仅测试用**的开关
+`CASCADED_SOURCE_IMPORTERS_CAPTURE=<png 路径>` —— 设了就把路径映射到编辑器既有的 dock 抓窗钩子
+（`CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>`：dock 控制器就绪后每 30 帧用
+`CapturePreviewAsync` 覆盖落盘，不置前、不最小化、不移动用户窗口），并在 list-assets 断言之后再推
+约 3 秒的帧让 dock 把条目画出来，最后断言 PNG 非空。不设时行为与不带抓窗的用例完全相同。
+
 ## 环境变量
 
 | 变量 | 作用 | 默认 |
@@ -416,6 +439,10 @@ ulong handle = ResourceImporterBindings.Create(new MyImporter());
 | `CASCADED_CSHARP_IMPORTER_PHASE` | 导入器探针阶段机（`create-importer` / `after-first-scan` / `after-second-scan` / `report-serialize`），由测试在两次 `Tick` 之间设置 | 空串 |
 | `CASCADED_CSHARP_IMPORTER_READINGS` | 导入器探针把读数（句柄 / 保活计数 / Produce 次数 / 序列化计数）追加到这个文件，测试读同一份 | 不设 |
 | `CASCADED_CSHARP_IMPORTER_SOURCE` | 导入器探针把 `GetSourceDirectory()` 声明成这个目录（C# 反向实现读不到管线传入的扫描根，必须自己声明） | 空串 |
+| `CASCADED_SOURCE_IMPORTERS=1` | 启用**源导入器**（PNG 贴图 / OBJ 网格：`PngTextureImporter` / `ObjMeshImporter`）；只有 `TestSourceImporters` 在自己的 Tick 之前设置、之后清理；默认关零行为（不绑表、不建导入器、不写读数、不落盘） | 不设 |
+| `CASCADED_SOURCE_IMPORTERS_PHASE` | 源导入器阶段机（`create-importers` / `report-round-1` … `report-round-4`），由测试在两次 `Tick` 之间设置 | 空串 |
+| `CASCADED_SOURCE_IMPORTERS_READINGS` | 源导入器把读数（导入器句柄 / 标签 / 源目录 / Produce 次数 / 每轮产出的路径与借用句柄 / 红态 `AssetFormatException` 的类型、消息、源路径）追加到这个文件，测试读同一份 | 不设 |
+| `CASCADED_SOURCE_IMPORTERS_DIR` | 源导入器声明的源根（C# 反向实现读不到管线传入的扫描根，必须自己声明）；测试传临时绝对路径，生产默认工程内 `CAResources/` | `CAResources` |
 | `CASCADED_EDITOR` | `1` 时启用编辑器面板服务（单窗口三分区 + 两个 WebView2 + WebSocket 命令服务）；不设时零行为（不监听、不建线程） | 不设 |
 | `CASCADED_EDITOR_PORT` | 编辑器服务监听端口（只绑 localhost） | `18390`（`1`-`65535`） |
 | `CASCADED_EDITOR_WEBVIEW2_DATA` | WebView2 用户数据目录 | `%TEMP%\cascaded-editor-webview2` |

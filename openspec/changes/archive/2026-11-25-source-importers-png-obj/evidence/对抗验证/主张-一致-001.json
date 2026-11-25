@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-001",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "3.1 tester 用例 `TestSourceImporters`（Main.cpp + --list 登记，独立进程）：……断言 ② 落盘存在 + Texture2D.Parse/Mesh.Parse 读回像素/顶点/索引==写死期望（逐字节）+ HasResource 真",
+  "problem": "验收点写在一个 C++ 进程里，却要求调用托管的内部静态方法 `Texture2D.Parse` / `Mesh.Parse`。这两个方法是 `internal static`（同程序集可见），C++ tester 没有任何路径能调到它们；工件也没有任何一条任务新增 C# 探针或 C ABI 导出。于是 3.1 的这条断言按字面不可执行：要么实施者临时发明一个未受验收的托管读数通道，要么悄悄删掉读回断言，两种都与 tasks 写死的判据不符。",
+  "evidence": "`Scripting/Managed/Assets/Mesh.cs` 第 84 行逐字 `internal static Payload Parse(byte[] bytes, string sourcePath)`，返回类型 `internal readonly struct Payload`（第 48 行）；`Scripting/Managed/Assets/Texture2D.cs` 第 75 行同款 `internal static Payload Parse(byte[] bytes, string sourcePath)`、第 41 行 `internal readonly struct Payload`。全仓 `Texture2D.Parse` / `Mesh.Parse` 调用点只有 `Scripting/Managed/Assets/AssetDatabase.cs` 第 111 行与第 115 行（同程序集内部）。tasks 3.1 原文把断言写在 `Main.cpp` 的 tester 用例里。",
+  "suggestion": "二选一并写进 tasks：① 新增一条 C# 探针任务（同 `Scripting.Managed` 程序集，像 `ResourceAssetProbe.cs` 那样用环境变量门控 + 读数文件），由 C++ tester 读同一份读数断言，并写明调用的是裸字节解析、不是注册表 Deserialize；② 把判据改成 C++ 按 CATX/CAMH 固定头部（贴图 28 字节 / 网格 32 字节）直接读文件字节逐字节对照（与 `csharp-asset-layer` 规范「C++ 侧读文件」同款）。"
+}

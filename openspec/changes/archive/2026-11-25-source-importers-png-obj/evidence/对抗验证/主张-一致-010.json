@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-010",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "D1：`GetSourceDirectory` 返回 ① 源目录（env `CASCADED_SOURCE_IMPORTERS_DIR` 覆盖，默认仓库根/SourceAssets）  vs  Open Questions：1. 源目录默认位置（SourceAssets vs CAResources/Source）——取仓库根/SourceAssets，env 可配。",
+  "problem": "同一个问题在 design 里既是「已决定」（D1 直接写了默认值）又是「未决」（Open Questions 第 1 条），读者无法判断哪处是权威。更实质的是两个候选都不是仓库现状：现有着色器管线扫描的源根是 `ctx.resourcePath = 仓库根/CAResources`（Main.cpp 第 10495 行），既没有 `CAResources/Source`，也没有 `SourceAssets`；proposal 的「源目录约定（① SourceAssets → ② CAAssets）」没有说明与既有 `CAResources` 扫描根的关系（新增独立目录？共用？迁移？）。",
+  "evidence": "`design.md` 第 22 行（D1）原文见 anchor 左半；`design.md` 第 60–62 行 `## Open Questions` + `1. 源目录默认位置（SourceAssets vs CAResources/Source）——取仓库根/SourceAssets，env 可配。`；`Test/GPUBackendTester/Main.cpp` 第 10495 行 `ctx.resourcePath = (rootPath / \"CAResources\").string();`；`Test-Path SourceAssets` = False、`Test-Path CAResources/Source` = False；`proposal.md` 第 27 行「源目录约定（① SourceAssets → ② CAAssets）」；`CSharpHost/README.md` 第 121 行「`CASCADED_EDITOR_ASSET_ROOT` … 只影响资产浏览；导入器仍按默认根扫描」——「默认根」指代的是哪个目录在工件里没写。",
+  "suggestion": "删掉 Open Questions 第 1 条（决策已定就不再列为未决），并在 design D1 增一句与既有扫描根的关系：例如「本批新增独立源目录 `SourceAssets`，两个着色器导入器继续跟随 `ScanSourceDirectory` 传入的 `CAResources`；两者的默认根不同，MUST 在 ③ 文档与 README 写明」。proposal 的约定句同步。"
+}

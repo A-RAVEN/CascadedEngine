@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；specs/source-importers-png-obj/spec.md",
+  "anchor": "design.md:28「IDAT（zlib 流，跳 2 字节 zlib 头用 DeflateStream 解压，忽略 4 字节 adler32）」；tasks.md:9 同句；全仓工件里 0 处「多 IDAT / 拼接 / 连续」",
+  "claim": "工件把一个 PNG 的 IDAT 当成「一段」zlib 流，从未写「把所有 IDAT 块的数据字段按顺序拼接成一个 zlib 流」。PNG 规范规定可以有多个 IDAT，且块界是任意的、连末尾 4 字节校验值都可被切开；照工件字面只读第一个 IDAT 的实现，会在合法的多 IDAT PNG 上解压失败或解出残缺数据。验收夹具只有「已知 PNG」，没有多 IDAT 例，这种实现可以全绿通过验收。",
+  "evidence": "证据-溯源-003.md：RFC 2083 第 990-994 行与第 1665-1675 行原文；工件的 IDAT 表述 grep 输出（多 IDAT/拼接 0 命中）。"
+}

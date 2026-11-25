@@ -1,0 +1,60 @@
+任务：tasks.md 2.3（测试驱动接入管线 + 临时根隔离 + README 门控登记）
+被测物：Scripting/Managed/Assets/Importers/SourceImporterDriver.cs、Scripting/Managed/Host.cs 的门控挂点、
+CSharpHost/README.md 的门控登记、Test/GPUBackendTester/Main.cpp 的 TestSourceImporters 接线
+
+验收判据（tasks.md 原文）：构建过；门控关零行为（读数无活动+无新文件）；门控开测试驱动导入→临时根
+镜像路径 Images/A/Test.tex+Models/B.mesh 落盘+HasResource 真；真实 CAAssets 字节不变；
+check_csharp_host_readme 0 问题。
+
+一、构建
+  命令：python build.py --config Debug
+  读数（主循环回传）：BUILD SUCCESSFUL（0 错误）
+
+二、门控关零行为
+  日志原文（evidence/3.1-TestSourceImporters.txt）：
+
+    [TestSourceImporters ⓪] 门控关零行为：读数无活动、临时根无新文件（CASCADED_SOURCE_IMPORTERS 未设；临时资源根 C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/root）
+
+  判据：宿主 Tick 两次（阶段 create-importers / report-round-1）后，读数文件不存在或 0 字节，且临时资源根
+  一个条目都没有（is_empty 真）—— 不是"name+status 没变"这种间接证据。
+
+三、门控开：C# 强句柄 → ResolveImpl → AddImporter → ScanSourceDirectory（测试驱动）
+  日志原文（同一份）：
+
+    [TestSourceImporters ①] 门控开 CASCADED_SOURCE_IMPORTERS=1；源根（CASCADED_SOURCE_IMPORTERS_DIR）=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/source；临时资源根=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/root；读数文件=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/readings.txt
+    [TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、裸字节与写死预期一致、HasResource 真
+
+  读数通道断言（C++ 从读数文件读、与写死期望比）：
+    - png/obj 两个导入器的强句柄非 0、tags = "CSharp;Source;PNG"/"CSharp;Source;OBJ"、
+      反向基类名 = ResourceImporterBase、保活计数 = 1、GetSourceDirectory = CASCADED_SOURCE_IMPORTERS_DIR；
+    - 每一轮：Produce 次数、产出条数、NextPath（镜像路径）、每条产出的借用句柄与保活计数；
+    - 管线用 `ResourceImportingSystem::AddImporter` + `ScanSourceDirectory`（不是 ResourceManagingSystem）。
+
+四、临时根隔离：真实 CAAssets 字节不变（整段收尾复核）
+  用例对真实 `CAAssets/` 做"相对路径 → 裸字节"快照，全部扫描结束后逐字节比较；不一致会判 E_SRCIMPORT_ISOLATION。
+  通过时的收尾行（同一份日志末行）：
+
+    TestSourceImporters 通过：门控关零行为 → 门控开测试驱动接入（C# 句柄 → ResolveImpl → AddImporter → ScanSourceDirectory）→ 五滤波 + 多 IDAT + RGB + 四边面 OBJ 的镜像路径落盘与裸字节对拍 → 资产浏览器 list-assets 条目 → 重导入新对象（旧句柄 1001）→ 源变动重建 → 13 个红态读数点名 → 真实 CAAssets 字节不变
+
+  真实 CAAssets 现状（5 个文件，未被本用例改写）：D3D12ShaderLibrary.shLib 293737 /
+  VulkanShaderLibrary.shLib 145710 / Contrast.res 4 / Imported_A.res 2 / Imported_B.res 2。
+
+五、新门控登记 CSharpHost/README + check_csharp_host_readme
+  命令（只读）：python Tools/check_csharp_host_readme.py
+  读数（原文）：
+
+    ABI 版本：README v12 / 生成 kEngineApiVersion=12
+    函数表大小：README 56 字节 / 生成 static_assert 56 字节
+    接口编号表：README 13 行 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] / 生成头 13 项 / EngineApi 2 个字段 / C# 13 个常量
+    探针开关：代码里读到 15 个，README 表里 40 个
+    问题 0 处
+
+  "代码里读到 15 个"含新门控 —— Host.cs 里出现 `GetEnvironmentVariable("CASCADED_SOURCE_IMPORTERS")`，
+  README 环境变量表已登记 CASCADED_SOURCE_IMPORTERS / _PHASE / _READINGS / _DIR 四行。
+
+六、证据指针
+  - 完整运行日志：evidence/3.1-TestSourceImporters.txt
+  - 运行结果：evidence/3.1-绿跑.json
+  - 编辑器读数（list-assets 的 mode/cmdRequest/lastCmd 归因）：evidence/3.1-编辑器读数.txt
+  - 判据能红：evidence/3.1-第二次运行崩溃.txt（空着色器库把编辑器 scene view 顶到 __debugbreak；
+    修复为"起编辑器前装回真实 ShaderLibrary"后通过，详见 Main.cpp 的 ①b 段）

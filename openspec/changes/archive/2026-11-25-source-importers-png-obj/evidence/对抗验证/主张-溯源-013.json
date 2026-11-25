@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-013",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；specs/source-importers-png-obj/spec.md",
+  "anchor": "design.md:28「忽略 4 字节 adler32」；design.md:40「坏 PNG（签名/IHDR/滤波/长度不符…）」；tasks.md:9 红态「坏 PNG（错签名/截断）」；全仓工件 0 处提到 PNG 块 CRC",
+  "claim": "工件明确「忽略 adler32」，同时全文没有一处要求校验 IDAT 块的 CRC。PNG 的完整性检查恰好只有这两道：zlib 的 ADLER32（RFC 1950 要求合规解压器必须校验）和每块的 CRC32（RFC 2083 说校验块 CRC 就够）。两道都不做，一个长度合法、压缩数据被改过（例如 stored 块里翻一个像素字节）的坏 PNG 会静默产出错误贴图；而现有红态只覆盖「错签名/截断」，永远抓不到它。这与本 change 自己写的「失败可见、不静默灌垃圾」直接冲突。",
+  "evidence": "证据-溯源-013.md：RFC 1950 第 353-354 行、RFC 2083 第 1657-1663 行原文；工件里 CRC 0 命中、adler 仅一处「忽略」的 grep 输出。"
+}

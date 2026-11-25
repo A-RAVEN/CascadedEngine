@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-012",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；specs/source-importers-png-obj/spec.md",
+  "anchor": "design.md:28「颜色类型 …6 RGBA 或 2 RGB→补 alpha」（未写补什么值）；design.md:32「OBJ 无顶点色，色用写死默认（**如**白 (1,1,1)）」；tasks.md:10「默认色」；spec.md:19「OBJ 无顶点色用写死默认色」",
+  "claim": "两处会被写进字节的默认值都没被钉死：RGB 补的 alpha 是多少（255 还是 0），OBJ 的默认顶点色具体是什么（design 用「如」留了口）。验收要求「像素/顶点与写死期望逐字节一致」，但期望值本身没有第二位来源——实现取 0 或取任意颜色，测试都能把实现的输出抄成期望而全绿；这类默认值还直接决定贴图全透明/网格全黑，属于静默语义选择。",
+  "evidence": "证据-溯源-012.md：工件四处引文；对比 Mesh.cs/Texture2D.cs 里同类常量都有写死值；既有探针的常量写法。"
+}

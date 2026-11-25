@@ -1,0 +1,9 @@
+{
+  "id": "验收-002",
+  "face": "① PNG 像素逐字断言",
+  "severity": "misleading",
+  "claim": "规范把「落盘文件经 Texture2D.Parse 读回」当作判据，tasks 3.1 也要求「Texture2D.Parse/Mesh.Parse 读回像素/顶点/索引」。但 Parse 是 internal static（Texture2D.cs:75、Mesh.cs:84），唯一调用方是 C# 的 AssetDatabase.Load（AssetDatabase.cs:111、115）；Tester 是 C++，没有任何绑定能调到它，Scripting 下也没有 C# 测试工程。tasks 没有为这条判据指定 C# 读数通道或新探针，照字面写只能退化成 C++ 直接读 CATX/CAMH 文件字节——像素/顶点仍可比，但规范要求的 Parse 往返没有被验收。",
+  "location": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:5、19；openspec/changes/source-importers-png-obj/tasks.md:20",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-002.md",
+  "suggested_fix": "二选一并写进 tasks 3.1：① 加一个 C# 探针阶段（env 传 .tex/.mesh 路径，调用 AssetDatabase.Load 后把宽高/格式/像素 hex 或顶点/索引 hex 写入读数文件，C++ 断言读数）；② 把判据改成两条——C++ 读 CATX/CAMH 载荷逐字节对照写死期望（验 Serialize 落盘），外加同一份数据的 C# Load 往返读数（验 Parse）。"
+}

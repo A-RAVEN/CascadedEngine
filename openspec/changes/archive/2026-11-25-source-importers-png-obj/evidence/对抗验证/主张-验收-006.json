@@ -1,0 +1,9 @@
+{
+  "id": "验收-006",
+  "face": "③ 红态与异常可观测性",
+  "severity": "minor",
+  "claim": "规范要求「MUST NOT 落盘垃圾资产或静默返回空」（spec.md:15、29），但 tasks 3.1 的红态只要求「红态各能红」，没有一条断言坏文件对应的 Textures/<名>.tex / Meshes/<名>.mesh 不存在、HasResource 为假，或旧资产未被破坏。异常一抛测试就结束，「没落盘垃圾」只能靠管线实现自觉。",
+  "location": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:15、29；openspec/changes/source-importers-png-obj/tasks.md:20",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-006.md",
+  "suggested_fix": "红态里加两条文件系统断言：坏夹具名对应的 ② 路径不存在且 HasResource 为假；先导入一个完好资产，再让同目录/同路径的坏文件触发失败，断言完好资产的旧文件字节与注册表条目仍在（失败不毁旧资产）。"
+}

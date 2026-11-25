@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-010",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "design.md:22「C# 反向读不到管线扫描根（ResourceImporter.h 注释），目录自声明」；design.md:24「导入器不调注册表」的上下文",
+  "claim": "怀疑「C# 反向读不到管线扫描根」是自己编的限制（或编的反向基类缺口）。实测 ResourceImporter.h 明写「C# 反向实现读不到这两个值（托管代码没有入口），所以 C# 导入器 MUST 在自己的 GetSourceDirectory()/GetDestDirectory() 里声明目录」；生成的 ResourceImporterBase 只有四个抽象方法，没有任何扫描根访问器；管线只在原生侧调 SetScanDirectories。说法属实，主张不成立（falsePositive）。",
+  "evidence": "证据-溯源-010.md：ResourceImporter.h:27-28 与 :55-58 原文、ResourceImportingSystem.cpp:64-65、生成的基类四个方法。"
+}

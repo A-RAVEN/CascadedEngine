@@ -1,0 +1,9 @@
+{
+  "id": "验收-003",
+  "face": "② OBJ 顶点/索引断言",
+  "severity": "Blocking",
+  "claim": "「立方体 8 顶点 12 三角」不要求任何 f 面有 4 个索引：12 行 f a b c 就能满足，扇形三角化（design.md:32「面三角化（扇形拆三角形）」、tasks.md:10）可以完全不实现仍通过。规范把三角化列为 MUST，但验收只数三角数量并逐字节比 IndexData，而 IndexData 的期望由实现者写死；工件里没有「四边形面」要求（grep 四边形/quad 零命中），也没有写死扇形展开后的索引序列。",
+  "location": "openspec/changes/source-importers-png-obj/design.md:32；openspec/changes/source-importers-png-obj/tasks.md:10、20；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:19",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-003.md",
+  "suggested_fix": "夹具 MUST 含至少一个四索引面（如 f 1 2 3 4）与一个五索引面（如 f 1 2 3 4 5），并把扇形展开后的 IndexData 写死（四边形 4 顶点 → 6 个索引：(0,1,2),(0,2,3)；整个夹具的 uint32 序列在 C++ 侧逐字节写死）；tasks 1.2/3.1 的验收文案把「立方体 8 顶点 12 三角」改成「含 4/5 索引面的立方体」，少写一种面型即红。"
+}

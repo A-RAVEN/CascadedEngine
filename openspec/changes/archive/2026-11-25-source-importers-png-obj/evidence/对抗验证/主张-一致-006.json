@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-006",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/proposal.md",
+  "anchor": "→ `Texture2D` 资产（复用 Texture2DFactory/AssetDatabase），产出到 ② `CAAssets/Textures/*.tex`（proposal） vs 「或直接 new 资产填数据交迭代器，由管线 CreateProxy 注册」（design D4） vs 「产出 `Texture2D`……经管线注册到 ②」（spec）",
+  "problem": "四份工件对「资产怎么造出来、谁来注册」给了三种不同说法：proposal 明确写复用 Texture2DFactory/AssetDatabase（并在依赖行重复），design D4 用「或」把工厂路径与直接 new 并列，spec/tasks 只写「产出 Texture2D/Mesh」「入迭代器」、完全不提工厂。既有 `resource-importer` 规范只允许「新对象经 CreateProxy」这一条路径（新对象尚无代理），所以三种说法里只有「直接 new」合规。实施者按 proposal 做会撞 主张-一致-004/005 的注册表冲突；按 spec 做则 proposal 的「复用资产工厂 + AssetDatabase」落空，且 proposal 的 Impact 与 design 的 D4 都变成未兑现承诺。",
+  "evidence": "`proposal.md` 第 9 行：「纯 C# 解码……→ RGBA8 像素 → `Texture2D` 资产（复用 Texture2DFactory/AssetDatabase），产出到 ② `CAAssets/Textures/*.tex`」；`proposal.md` 第 29 行：「**依赖**：复用导入器机制 + 资产工厂 + AssetDatabase」。`design.md` D4（第 36 行）：「导入器 NextResource 交出 Texture2D/Mesh（经 Texture2DFactory/MeshFactory 的 Create 入队 + AssetDatabase 出队填数据……；或直接 new 资产填数据交迭代器，由管线 CreateProxy 注册）」。`spec.md` 第 5 行：「……产出 `Texture2D`（Format=E_R8G8B8A8_UNORM，Pixels 长=宽×高×4），经管线注册到 ②……」。`tasks.md` 2.1：「Produce 扫 .png 逐个 PngDecoder 解码→Texture2D（Format RGBA8）入迭代器（NextPath=Textures/<名>.tex）」。既有规范 `openspec/specs/resource-importer/spec.md` 第 24 行：「C# 导入器 NextResource 返回新 C# 资源 MUST 经**返回反向接口裸指针的现有投影 CreateProxy**（新对象尚无代理/借用句柄，MUST NOT 用 ResolveImpl）」。",
+  "suggestion": "统一成一句话并四处复制：『导入器在 Produce 里直接 `new Texture2D` / `new Mesh` 并填字段，交迭代器；注册由管线经 `CreateProxy` 完成；导入器 MUST NOT 调 AssetDatabase / 门面 / 资产工厂。』随后删 proposal 第 9/29 行的工厂与 AssetDatabase 字样、删 design D4 的「或经工厂」分支，Impact 的依赖只留「导入器机制」。"
+}

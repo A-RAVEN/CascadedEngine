@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-影响-004",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md D2/D5；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md 坏 PNG/坏 OBJ 场景；openspec/changes/source-importers-png-obj/tasks.md 3.1；out/build/x64-debug/codegen/bindings/resource_management__ResourceImporter.Bindings.cs 与 .Bindings.cpp；GeneralResources/private/ResourceImportingSystem.cpp",
+  "anchor": "design.md D5「坏 PNG / 坏 OBJ 抛 AssetFormatException（路径+原因），管线透出失败不静默灌垃圾」与 D2「跳 2 字节 zlib 头用 DeflateStream 解压，忽略 4 字节 adler32」；tasks.md 3.1「红态：坏 PNG/坏 OBJ→AssetFormatException 点名」",
+  "problem": "坏文件在管线边界不是「AssetFormatException 点名」：C# 的 OnProduce 把任何托管异常写成 LastError 文本并返回 null，原生代理在同一次 Produce 内 setError(1012) 后立刻 reportPendingError → 抛 cascaded_reverse::ReverseBindingError，所以从 C++ 扫描路径观测到的异常类型是 1012，不是 AssetFormatException（3.1 的红态没写在哪一侧观测）。同一路径还有两处放大/静默：一个坏文件让 importer->Produce() 抛出，整轮 ScanSourceDirectory 中止——循环里后面的导入器不再跑、末尾 SerializeAll 被跳过（前面已注册的产出不落盘，而该函数没有 try/catch）；D2 明写「忽略 4 字节 adler32」且全篇没有 PNG 分块 CRC 校验，像素数据已损坏但仍可 inflate 的 PNG 会被静默导入成错误像素，不落在 D5 的「坏 PNG 点名」里。",
+  "evidence": "见 `证据-影响-004.md`：① C# OnProduce 的 catch→SetLastError→return null 逐字引文；② C++ 代理 setError(1012)+reportPendingError 并抛 ReverseBindingError 逐字引文；③ ScanSourceDirectory 无 try/catch、SerializeAll 在循环之后逐字引文；④ D2「忽略 4 字节 adler32」逐字引文，全文无 CRC/chunk 校验；⑤ 坏 PNG 场景只列签名错/截断/不支持位深。",
+  "suggestion": "把红态观测点写死：C# 侧写读数（异常类型 AssetFormatException + 路径）由 C++ 断言，管线侧再断言 1012 文本含该路径。补一条「同目录好文件不受坏文件影响」的场景；若保留整批中止，就在 spec 写明「一个坏文件 ⇒ 本轮不落盘任何产出」，否则补 per-file 隔离。PNG 侧补 CRC/adler 校验，或把「不校验」写成已知限制并从「坏 PNG 点名」范围里划出去。"
+}

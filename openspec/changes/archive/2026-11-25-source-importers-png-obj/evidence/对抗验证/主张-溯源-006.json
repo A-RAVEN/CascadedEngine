@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-006",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md；design.md；spec.md",
+  "anchor": "tasks.md:9「已知 PNG 夹具解码像素==写死期望（五种滤波各覆盖一例）」；design.md:44「预置已知 PNG（写死像素，如 4×4 RGBA 渐变）」；tasks.md:20「预置已知 PNG（4×4 RGBA 写死像素）」",
+  "claim": "「4×4 PNG」与「五种滤波各覆盖一例」在数字上互斥：4×4 只有 4 条扫描线，每条扫描线前面只有 1 个滤波类型字节，一张 4×4 PNG 最多用 4 种滤波，不可能覆盖 5 种。按现有工件，要么这条验收达不成，要么实现者悄悄少覆盖一种（Paeth 最容易漏）而验收照样绿。",
+  "evidence": "证据-溯源-006.md：RFC 2083 第 1733 行「每扫描线前置一个滤波类型字节」；4×4 RGBA 的扫描线数换算；工件三处写死 4×4 的引文。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "验收-008",
+  "face": "④ 门控与管线",
+  "severity": "Blocking",
+  "claim": "「门控开触发导入」没有驱动者：C# 侧对 AddImporter/ScanSourceDirectory 零引用（grep 无匹配），ResourceImportingSystem.h 也没有 CA_BIND 标注；Host.Tick 只在 EnsureBound 后调各探针（Host.cs:303-337），C# 能做的只有 ResourceImporterBindings.Create 造句柄。C++ 侧注册需要 ResolveImpl+AddImporter（CSharpHost README:379；TestCSharpImporter 先例 Main.cpp:8850-8887），但 tasks 2.3/3.1 只写「门控接入 Host.cs + 管线 ScanSourceDirectory 拉取注册落盘」，没有给 handle 读数/C++ 注册/重扫步骤。设 CASCADED_SOURCE_IMPORTERS=1 后，导入器进不了管线，启动时那次 ScanSourceDirectory（Main.cpp:10588）又发生在导入器存在之前，2.3/3.1 的「门控开→② 落盘」无法执行。",
+  "location": "openspec/changes/source-importers-png-obj/tasks.md:16、20；GeneralResources/header/CAResource/ResourceImportingSystem.h:8-17；CSharpHost/README.md:379；Test/GPUBackendTester/Main.cpp:8850-8887、10588",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-008.md",
+  "suggested_fix": "新增一条任务并写进 2.3/3.1：Host 门控开时把两个导入器的强句柄与 tags 写入 CASCADED_SOURCE_IMPORTERS_READINGS；Tester 读句柄 → 反向表 ResolveImpl → AddImporter → ScanSourceDirectory(临时源根)（照 TestCSharpImporter 的 Main.cpp:8850-8887）。或者在 CSharpHost 加一个等价的 C++ 钩子（需同步 Impact 与「不动接口」的边界）。没有这条，3.1 只能测 C# 直接调解码器，测不到「经管线注册落盘」。"
+}

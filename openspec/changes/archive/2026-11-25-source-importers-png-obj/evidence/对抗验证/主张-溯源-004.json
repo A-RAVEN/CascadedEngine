@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-004",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；spec.md",
+  "anchor": "design.md:7「Mesh（VertexData 位置 float3+色 float3 stride 24 …布局与 SceneRenderer 三常量逐字一致）」；design.md:32「位置 float3 偏移 0 + 色 float3 偏移 12 步长 24」",
+  "claim": "怀疑 stride 24 / 偏移 0 / 偏移 12 是凭空写死的数字，或「与 SceneRenderer 三常量逐字一致」是编的对照。实测 Mesh.cs 的 VertexStride=24 / PositionOffset=0 / ColorOffset=12 与 SceneRenderer.cs 同名的三个常量逐字一致，数字有出处，主张不成立（falsePositive）。",
+  "evidence": "证据-溯源-004.md：Mesh.cs:31-33、SceneRenderer.cs:42-44 原文；Select-String 实测输出；EditorSceneView.cs:21-23 同一个三元组的第三处。"
+}

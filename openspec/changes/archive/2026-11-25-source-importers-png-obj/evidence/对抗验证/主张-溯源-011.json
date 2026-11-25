@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-011",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；specs/source-importers-png-obj/spec.md",
+  "anchor": "design.md:28「只支持 8 位深非隔行（Adam7 隔行/16 位/调色板明确抛 AssetFormatException 点名不支持）」；spec.md:5「不支持的 PNG（16 位/隔行/调色板）MUST 抛 AssetFormatException 点名，MUST NOT 静默」",
+  "claim": "工件的「不支持清单」只列了 16 位/隔行/调色板，把合法且常见的颜色类型 0（8 位灰度）与 4（8 位灰度+alpha）漏在支持面与拒绝面之外。PNG 规范说合法颜色类型是 0/2/3/4/6、解压器必须支持所有合法组合；照工件实现，8 位灰度 PNG 会落进未定义分支——要么静默产出错误像素，要么抛一个没点名的异常，而 spec 的「MUST NOT 静默」恰好不覆盖它。",
+  "evidence": "证据-溯源-011.md：RFC 2083 颜色类型表（第 857-882 行）与「Decoders must support all legal combinations」原文；工件三处清单引文。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "验收-005",
+  "face": "③ 红态与异常可观测性",
+  "severity": "Blocking",
+  "claim": "规范列出的 MUST 拒绝分支没有对应红态：spec 要求 16 位/隔行/调色板 MUST 抛（spec.md:5），缺顶点/空网格 MUST 抛（spec.md:19）；tasks 1.1/1.2 的正文提到这些词，但验收只列「坏 PNG（错签名/截断）」和「坏 OBJ 红态」，design D6 只列「截断/错签名」与「索引越界」。这五类分支可以完全不实现、也没有夹具，验收仍能全绿。",
+  "location": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:5、19；openspec/changes/source-importers-png-obj/tasks.md:9、10、20；openspec/changes/source-importers-png-obj/design.md:45",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-005.md",
+  "suggested_fix": "在 tasks 3.1（或 1.1/1.2）逐条列出五个红夹具与期望错误文本：16 位深 PNG、Adam7 隔行 PNG、调色板 PNG、OBJ 的 f 引用不存在的顶点、只有注释/零顶点的空 OBJ。每个夹具给独立文件名，期望读数里 MUST 出现该文件名与原因；少一条即红。"
+}

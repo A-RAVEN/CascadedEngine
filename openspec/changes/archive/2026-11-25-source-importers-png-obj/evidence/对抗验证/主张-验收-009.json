@@ -1,0 +1,9 @@
+{
+  "id": "验收-009",
+  "face": "④ 门控与管线",
+  "severity": "misleading",
+  "claim": "「门控关零行为」用「现有用例 name+status 与基线零差异」证明不了零行为：基线 JSON 每条只有 name/status/duration_ms/exit_code，tasks 4.1 只比 name+status；默认开启的导入器若空扫不存在的 SourceAssets（只 WARN）、把 ② 已有资产按同字节重写、或写自己的读数文件，name+status 都可以零差异。这个判据对「零行为」是必要不充分，无法区分「门控没生效但没影响测试」与「零行为」。",
+  "location": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:33、37-38；openspec/changes/source-importers-png-obj/tasks.md:25；openspec/changes/archive/2026-11-24-editor-web-render-spike/evidence/4.1-全量-d3d12.json",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-009.md",
+  "suggested_fix": "加一条直接观测：不设 CASCADED_SOURCE_IMPORTERS 时断言 ① 读数文件不存在（或为空）、② 日志里没有源导入器的任何行、③ 资源根下文件集合与 mtime 不变、④ SourceAssets 未被创建/读取。再加门控开的正控（同一进程设 env 后导入成功），证明开关真的能开——两者合起来才排除「默认开但恰好没影响」与「门控永远关」。"
+}

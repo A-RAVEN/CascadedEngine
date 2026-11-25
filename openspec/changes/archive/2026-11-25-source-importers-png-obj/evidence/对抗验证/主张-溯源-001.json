@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md；design.md",
+  "anchor": "spec.md:5「纯 C# 解码（DeflateStream zlib + PNG 五种滤波重建…）」；design.md:28「跳 2 字节 zlib 头用 DeflateStream 解压，忽略 4 字节 adler32」",
+  "claim": "spec 把「DeflateStream（raw deflate，本身不认 zlib 头尾）」与「PNG IDAT 是 zlib 流」压成一句「DeflateStream zlib」，而没有写 design 里的「跳 2 字节头」。.NET 源码里 Deflate 格式的注释就是「Raw deflate format (no header/trailer)」，DeflateStream 取 raw 窗口位、ZLibStream 才取 zlib 窗口位；scheme 层面的机制在 design 里写对了，但规范正文按字面会让实现者把 IDAT 直接喂给 DeflateStream 而失败（zlib 头两个字节会被当成 deflate 块头）。",
+  "evidence": "证据-溯源-001.md：CompressionFormat.cs 原文、DeflateStream.cs/ZLibStream.cs 构造器窗口位、Microsoft Learn 两页、RFC 2083 第 5 章 zlib 结构。"
+}

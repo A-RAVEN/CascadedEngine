@@ -1,0 +1,36 @@
+任务：tasks.md 2.1（PngTextureImporter）/ 2.2（ObjMeshImporter）
+被测物：Scripting/Managed/Assets/Importers/PngTextureImporter.cs、ObjMeshImporter.cs（以及共同骨架
+SourceImporterBase.cs / SourceImporterSupport.cs）
+
+验收判据（tasks.md 原文）：
+  2.1 构建过；门控开 Produce 产 Texture2D；grep 五写入口 0。
+  2.2 构建过；Produce 产 Mesh；grep 五写入口 0。
+
+一、构建
+  命令：python build.py --config Debug
+  读数（主循环回传）：BUILD SUCCESSFUL（0 错误；新增 7 个托管文件与 Host.cs 挂点一起编译通过）
+
+二、门控开 Produce 产 Texture2D / Mesh（独立进程用例跑出来的读数）
+  日志原文（evidence/3.1-TestSourceImporters.txt）：
+
+    [TestSourceImporters ①] 门控开 CASCADED_SOURCE_IMPORTERS=1；源根（CASCADED_SOURCE_IMPORTERS_DIR）=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/source；临时资源根=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/root；读数文件=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/readings.txt
+    [TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、裸字节与写死预期一致、HasResource 真
+
+  - 6 张 `Images/A/*.tex`（Test/Test1..Test4/Rgb）+ `Models/B.mesh` 落盘，字节逐字等于写死 CATX/CAMH；
+  - HasResource 全真（管线 CreateProxy 注册，不是导入器自己注册）；
+  - NextPath 是源相对路径镜像 + 扩展名替换（`Images/A/Test.png` → `Images/A/Test.tex`、`Models/B.obj` → `Models/B.mesh`）。
+
+三、"不调注册表、不经工厂/资产数据库门面"的 grep（0 命中）
+  命令（只读）：
+    Select-String -Path Scripting\Managed\Assets\Importers\*.cs -Pattern 'RegisterResource|ReleaseResource|CreateResource|GetOrLoadResource|GetOrNewResource' -CaseSensitive
+  读数：
+    命中数: 0
+    （另跑 AssetDatabase|Factory 同口径）
+    命中数: 0
+  说明：导入器目录里连注释都不含这五个名字（注释曾写到它们，已改写成中文描述，避免 grep 判据被文档自己喂绿）。
+
+四、证据指针
+  - 完整运行日志：evidence/3.1-TestSourceImporters.txt（含 ① 正控行）
+  - 运行结果：evidence/3.1-绿跑.json（status=pass, exit_code=0）
+  - 导入器/门控登记：CSharpHost/README.md 的「源导入器」小节 + 环境变量表 4 行
+    （CASCADED_SOURCE_IMPORTERS / _PHASE / _READINGS / _DIR）

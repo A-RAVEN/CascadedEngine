@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-012",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "门控接入 Host.cs（EnsureBound 后调两导入器 Tick，默认关零行为）",
+  "problem": "「调两导入器 Tick」按字面不可实现：`ResourceImporterBase` 只有 `GetTags` / `GetSourceDirectory` / `GetDestDirectory` / `Produce` 四个抽象方法，没有 Tick；导入器对象也不会自动进入原生导入器列表（唯一入口是 `ResourceImportingSystem::AddImporter(ResourceImporter*)`，只能由 C++ 调）。先例 `ResourceImporterProbe` 的 Tick 只是按阶段创建 C# 导入器并写读数，真正 `AddImporter` 是 C++ 测试做的。tasks 2.x 与 3.1 里没有任何「绑反向表 / 建导入器实例 / 交给原生」的任务，design D1 也没写；Host 侧的「Tick」因此没有可调的东西。",
+  "evidence": "生成产物 `out/build/x64-debug/codegen/bindings/resource_management__ResourceImporter.Bindings.cs` 第 13–25 行：`public abstract class ResourceImporterBase`（13）、`public abstract string GetTags();`（16）、`public abstract string GetSourceDirectory();`（19）、`public abstract string GetDestDirectory();`（22）、`public abstract ResourceImporterProductionsBase Produce();`（25）—— 无 Tick。`GeneralResources/header/CAResource/ResourceImporter.h` 第 50–61 行同样只有四个虚函数；第 33–38 行 `ResourceImportingSystemImpl::AddImporter` 是 `m_ResourceImporters.push_back(importer)`。`Scripting/Managed/ResourceImporterProbe.cs` 第 156–172 行 `BindReverseTables(EngineApiMirror* api)` 显式绑三张反向表（ResourceImporter / ResourceImporterProductions / IResource），注释写「资源代理（NextResource 的 CreateProxy 与保活读数都走它）」；第 219–227 行 `Tick` 只做「门控 + 阶段机 + 写读数」；`Test/GPUBackendTester/Main.cpp` 第 8881 行才 `ctx.pImportingSystem->AddImporter(csharpImporter);`。`tasks.md` 第 16 行原文见 anchor；`Host.cs` 第 330 行现有探针调用是 `ResourceImporterProbe.Tick(s_api);`（探针自己的静态入口，不是导入器接口上的 Tick）。",
+  "suggestion": "把 2.3 拆成可执行条目：① `Host.Tick` 里按门控创建两个导入器实例（`new PngTextureImporter()` / `new ObjMeshImporter()`），并经 `ResourceImporterBindings.Create` 拿强句柄、把句柄写进读数/交给原生可取的通道；② C++ 侧（测试或启动接线）`ResolveImpl` 后 `AddImporter` 再 `ScanSourceDirectory`；③ 参照 `ResourceImporterProbe.BindReverseTables` 写清三张反向表的绑定任务（否则 `Create` / `NextResource` 的 `CreateProxy` 都会因缺表失败）。任一条缺件都要有可观测失败。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "验收-011",
+  "face": "⑤ 资产浏览器联动",
+  "severity": "misleading",
+  "claim": "「资产浏览器 list-assets 含 kind=texture/mesh registered=true 条目」没有点名条目 path/nodeId，也没绑到导入产物；既有 TestEditorAssetBrowser 先例用 AssetBrowserProbeFactory 在 Assets/Registered.tex 注册任意资源就得到 kind=texture+registered=true（Main.cpp:6410、6443-6449），AssetDisplay.cs:111-112 的 .tex→texture/.mesh→mesh 映射本来就在。因此导入器即使没产条目，先用探针注册两条也能让这条断言绿；它证明不了「导入→浏览器联动」。",
+  "location": "openspec/changes/source-importers-png-obj/tasks.md:20；Test/GPUBackendTester/Main.cpp:6410、6443-6449；Scripting/Managed/Editor/AssetDisplay.cs:111-112",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-011.md",
+  "suggested_fix": "断言点名导入产物：path/nodeId = Textures/<夹具名>.tex 与 Meshes/<夹具名>.mesh、kind 分别 texture/mesh、registered=true、sizeBytes 等于写死的 CATX/CAMH 长度（例如 4×4 RGBA 的 .tex = 28+64 = 92 字节）；断言恰好两条且没有探针注册的同名资源。另把启动 EditorService（CASCADED_EDITOR=1、专用端口、CASCADED_EDITOR_ASSET_ROOT 指向临时资源根、WebSocket 发 list-assets 等 result）写进 3.1，照 TestEditorAssetBrowser 的做法。"
+}

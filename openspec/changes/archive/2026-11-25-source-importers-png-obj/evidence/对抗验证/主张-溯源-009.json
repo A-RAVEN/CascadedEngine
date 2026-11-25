@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-009",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md；spec.md",
+  "anchor": "design.md:47「绑定产物逐字节不变（纯 C# 无绑定改动）」；tasks.md:25「绑定基线 check_binding_baseline.py 缺失0/不一致0/多余0」；spec.md:47「绑定产物 MUST 逐字节不变」",
+  "claim": "怀疑「新增导入器也不改绑定产物」是空头承诺（新类会实现反向接口，可能触发 CodeGen 重新生成）。实测绑定文件头部写「由 CodeGen --emit-binding 生成，勿手改」，生成输入是 C++ 头（CA_BIND_REVERSE 注解），新增 .cs 实现只是消费既有基类；对账脚本 check_binding_baseline.py 真实存在且按缺失/不一致/多余三段逐条核。承诺可核，主张不成立（falsePositive）。",
+  "evidence": "证据-溯源-009.md：绑定文件头逐字引文、ResourceImporterBase 四个抽象方法、脚本存在与输出口径。"
+}

@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-009",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "门控接入 Host.cs（EnsureBound 后调两导入器 Tick，默认关零行为）",
+  "problem": "design/tasks 把新门控接进 Host.cs，但 `CSharpHost/README.md` 的环境变量表里 `CASCADED_SOURCE_IMPORTERS` 与 `CASCADED_SOURCE_IMPORTERS_DIR` 都是 0 命中；而 `Tools/check_csharp_host_readme.py` 有一条硬判据：「`Host.cs` / `UserScript.cs` 里读的环境变量（`CASCADED_*`）每一个都在 README 的环境变量表里出现」，缺失就打印「README 的环境变量表缺这些开关：…」并 `return 1`。tasks 4.1 的回归清单只列全量用例、CoreTests、绑定基线，没有这条脚本；四处工件也没有任何一条任务改 README。于是实施后要么该脚本变红（回归不绿），要么为了绿而把新门控藏到 Host.cs/UserScript.cs 之外（违反 design 的接入位置），两条都与工件冲突。",
+  "evidence": "`Tools/check_csharp_host_readme.py` 第 17–18 行逐字：「④ 探针开关：`Host.cs` / `UserScript.cs` 里读的环境变量（`CASCADED_*`）每一个都在 README 的 / 环境变量表里出现。」；第 140–141 行 `def parse_env_names(...) return set(re.findall(r'GetEnvironmentVariable\\(\"(CASCADED_[A-Z0-9_]+)\"', text))`；第 217 行 `used_env = parse_env_names(read(HOST_CS)) | parse_env_names(read(USER_SCRIPT_CS))`；第 276–279 行 `missing = sorted(name for name in used_env if name not in readme_env)` / `if missing: problems.append(\"README 的环境变量表缺这些开关：\" + \"、\".join(missing))`；第 290 行 `return 0 if not problems else 1`。`CSharpHost/README.md` 现有探针行见第 415 行（`CASCADED_CSHARP_IMPORTER_PROBE=1`）与第 418 行（`CASCADED_CSHARP_IMPORTER_SOURCE`），新名 0 命中。`design.md` 第 21 行「门控 `CASCADED_SOURCE_IMPORTERS=1`（默认关，Host.Tick 里 EnsureBound 后调……）」；`tasks.md` 第 16 行 2.3 原文见 anchor；`tasks.md` 第 25 行 4.1 的回归清单原文：「现有用例同进程两后端 name+status 与基线……零差异；TestSourceImporters 独立进程过；CoreTests exit 0 + PASSED 26……绑定基线 check_binding_baseline.py 缺失0/不一致0/多余0……--list/docs/testing.md 同步」（不含 check_csharp_host_readme.py）。",
+  "suggestion": "加一条任务：在 `CSharpHost/README.md` 的环境变量表登记 `CASCADED_SOURCE_IMPORTERS`（默认不设；谁设置、语义）与 `CASCADED_SOURCE_IMPORTERS_DIR`（默认、可配范围、未设时的行为），并把 `python Tools/check_csharp_host_readme.py` exit 0 写进 4.1 的验收读数。若门控读取位置不在 Host.cs/UserScript.cs，也要在 README 的「其余开关」里写明，避免「文档不覆盖代码」的静默。"
+}

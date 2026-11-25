@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-007",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "tasks.md:25「现有用例同进程两后端 name+status 与基线（归档 2026-11-24-editor-web-render-spike/evidence/4.1-全量-*.json）零差异；…CoreTests exit 0 + PASSED 26（evidence/4.1-CoreTests.txt）；绑定基线 check_binding_baseline.py 缺失0/不一致0/多余0」",
+  "claim": "怀疑「PASSED 26」是编的数、点名的基线 JSON 不存在、check_binding_baseline.py 的输出口径「缺失0/不一致0/多余0」与脚本实际打印不符。实测：两份基线 JSON 存在；归档的同名 CoreTests 证据里正好 26 行 PASSED（源码头文件里也正好 26 处 `std::puts(...PASSED)`）；脚本第 128 行打印「基线对账：缺失 n / 不一致 n / 多余 n」。三项都有出处，主张不成立（falsePositive）。",
+  "evidence": "证据-溯源-007.md：glob 结果、PASSED 行数统计、脚本打印行原文、26 处 puts 的检索。"
+}

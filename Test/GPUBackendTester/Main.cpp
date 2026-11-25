@@ -9705,6 +9705,1357 @@ void TestCSharpAssets(TestContext& ctx)
 	       ctx.backendName, expectedTextureBytes.size(), expectedMeshBytes.size());
 }
 
+// ---- TestSourceImporters（source-importers-png-obj 3.1，第 25 用例）----
+//
+// **独立进程用例**（与 TestEditorAssetBrowser 同一理由：编辑器服务是进程级一次性状态机；本用例还要
+// 换资源根、改注册表）：`GPUBackendTester.exe --test TestSourceImporters --backend vulkan`。
+// 进 `--list`，**不进**全量同进程顺序跑（全量是 Main.cpp 硬编码的那 22 条）。
+//
+// 覆盖（tasks 1.1 / 1.2 / 2.1 / 2.2 / 2.3 / 3.1）：
+//   ⓪ 门控关零行为：读数文件一行活动都没有 + 临时资源根一个新文件都没有。
+//   ① 门控开测试驱动接入：C# 造两个导入器强句柄 → C++ ResolveImpl → AddImporter → ScanSourceDirectory；
+//      五滤波 PNG（其中一个 IDAT 被拆成 3 块，验"全部 IDAT 拼一条 zlib 流"）+ RGB（补 alpha=255）+
+//      含四边面的立方体 OBJ（6 个四边面 → 12 个三角、含一个未被引用顶点）→ 临时根**镜像路径**落盘；
+//      C++ 读 ② 文件裸字节 == 写死预期序列化字节（CATX 头 28 + 像素 / CAMH 头 32 + 顶点与索引）；
+//      不用 Texture2D.Parse / Mesh.Parse —— 它们是 internal，C++ 调不到（design D6 修订）；HasResource 真。
+//   ② 资产浏览器 list-assets：写死 path / kind=texture|mesh / registered=true / sizeBytes 条目。
+//   ③ 重导入：第二轮是新对象（第一轮句柄 ReleaseImpl == 1001）+ 落盘字节 == 写死预期。
+//   ④ 源变动重建：改源 PNG/OBJ 内容重扫 → ② 产物 == 新源对应字节，且与改前不同。
+//   ⑤ 红态：坏 PNG（签名/截断/CRC32/adler32/灰度/灰度+alpha/调色板/16 位/Adam7）与坏 OBJ
+//      （索引越界/缺顶点引用/空网格/坐标缺分量）→ C# 读数点名 AssetFormatException（管线边界把它
+//      变形为 1012，C++ 直接 catch 不到 AssetFormatException）；临时根文件字节不变（不落盘垃圾资产）。
+//   ⑥ 真实 CAAssets 全程字节不变（临时根隔离，防着色器空库覆盖真实 shLib）。
+//
+// 红态怎么构造（每条判据都能失败）：删掉逐块 CRC32 → CRC 夹具变成"能 inflate 就接受"；只拼第一个
+// IDAT → 多 IDAT 夹具像素不全；不查 adler32 → adler 夹具变绿；不实现扇形三角化 → 立方体的 12 个
+// 三角与写死索引对不上；索引按 0 基 → 越界夹具与立方体字节同时红；源变动后不重导 → ④ 落盘字节还是
+// 旧值；不广播 / 不枚举 ② 根 → ② 的 list-assets 条目缺失。
+namespace
+{
+	// 标准 CRC-32（IEEE 802.3，PNG 块 CRC 用的那一条）。
+	uint32_t SourceImporterCrc32(unsigned char const* data, size_t length)
+	{
+		static uint32_t table[256];
+		static bool ready = false;
+		if (!ready)
+		{
+			for (uint32_t index = 0; index < 256u; ++index)
+			{
+				uint32_t value = index;
+				for (int bit = 0; bit < 8; ++bit)
+				{
+					value = (value & 1u) != 0u ? (0xEDB88320u ^ (value >> 1)) : (value >> 1);
+				}
+				table[index] = value;
+			}
+			ready = true;
+		}
+		uint32_t crc = 0xFFFFFFFFu;
+		for (size_t index = 0; index < length; ++index)
+		{
+			crc = (crc >> 8) ^ table[(crc ^ data[index]) & 0xFFu];
+		}
+		return crc ^ 0xFFFFFFFFu;
+	}
+
+	void AppendPngBe32(std::vector<unsigned char>& out, uint32_t value)
+	{
+		out.push_back(static_cast<unsigned char>((value >> 24) & 0xFFu));
+		out.push_back(static_cast<unsigned char>((value >> 16) & 0xFFu));
+		out.push_back(static_cast<unsigned char>((value >> 8) & 0xFFu));
+		out.push_back(static_cast<unsigned char>(value & 0xFFu));
+	}
+
+	// 追加一个完整的 PNG 块（长度 + 类型 + 数据 + CRC）；data 可以是 nullptr（length 为 0 时）。
+	void AppendPngChunk(std::vector<unsigned char>& out, char const* type, unsigned char const* data, size_t length)
+	{
+		AppendPngBe32(out, static_cast<uint32_t>(length));
+		const size_t typeOffset = out.size();
+		for (int index = 0; index < 4; ++index)
+		{
+			out.push_back(static_cast<unsigned char>(type[index]));
+		}
+		if (length != 0)
+		{
+			out.insert(out.end(), data, data + length);
+		}
+		const uint32_t crc = SourceImporterCrc32(out.data() + typeOffset, length + 4u);
+		AppendPngBe32(out, crc);
+	}
+
+	struct PngChunkSpan
+	{
+		std::string type;
+		size_t chunkOffset = 0;
+		size_t dataOffset = 0;
+		size_t length = 0;
+	};
+
+	bool WalkPngChunks(std::vector<unsigned char> const& bytes, std::vector<PngChunkSpan>& chunks, std::string& error)
+	{
+		static unsigned char const signature[8] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+		chunks.clear();
+		if (bytes.size() < 8 || std::memcmp(bytes.data(), signature, 8) != 0)
+		{
+			error = "PNG 签名不符";
+			return false;
+		}
+		size_t offset = 8;
+		while (offset + 8 <= bytes.size())
+		{
+			const uint32_t length = (static_cast<uint32_t>(bytes[offset]) << 24) |
+				(static_cast<uint32_t>(bytes[offset + 1]) << 16) |
+				(static_cast<uint32_t>(bytes[offset + 2]) << 8) |
+				static_cast<uint32_t>(bytes[offset + 3]);
+			PngChunkSpan chunk;
+			chunk.chunkOffset = offset;
+			chunk.dataOffset = offset + 8;
+			chunk.length = length;
+			chunk.type.assign(reinterpret_cast<char const*>(bytes.data() + offset + 4), 4);
+			if (chunk.dataOffset + length + 4 > bytes.size())
+			{
+				error = "块 " + chunk.type + " 越界";
+				return false;
+			}
+			chunks.push_back(chunk);
+			offset = chunk.dataOffset + length + 4;
+			if (chunk.type == "IEND")
+			{
+				return true;
+			}
+		}
+		error = "没走到 IEND";
+		return false;
+	}
+
+	// 把全部 IDAT 段拼起来再按 pieces 份重新切成连续的 IDAT 块（多 IDAT 夹具：块界任意，解码必须拼）。
+	std::vector<unsigned char> SplitPngIdatChunks(std::vector<unsigned char> const& source, int pieces)
+	{
+		std::vector<PngChunkSpan> chunks;
+		std::string error;
+		if (!WalkPngChunks(source, chunks, error) || pieces < 1)
+		{
+			return {};
+		}
+		std::vector<unsigned char> idat;
+		for (PngChunkSpan const& chunk : chunks)
+		{
+			if (chunk.type == "IDAT")
+			{
+				idat.insert(idat.end(), source.begin() + static_cast<std::ptrdiff_t>(chunk.dataOffset),
+					source.begin() + static_cast<std::ptrdiff_t>(chunk.dataOffset + chunk.length));
+			}
+		}
+		if (idat.size() < static_cast<size_t>(pieces))
+		{
+			return {};
+		}
+		std::vector<unsigned char> out(source.begin(), source.begin() + 8);
+		bool wroteIdat = false;
+		for (PngChunkSpan const& chunk : chunks)
+		{
+			if (chunk.type == "IDAT")
+			{
+				if (wroteIdat)
+				{
+					continue;
+				}
+				wroteIdat = true;
+				for (int piece = 0; piece < pieces; ++piece)
+				{
+					const size_t begin = idat.size() * static_cast<size_t>(piece) / static_cast<size_t>(pieces);
+					const size_t end = idat.size() * static_cast<size_t>(piece + 1) / static_cast<size_t>(pieces);
+					AppendPngChunk(out, "IDAT", idat.data() + begin, end - begin);
+				}
+				continue;
+			}
+			AppendPngChunk(out, chunk.type.c_str(), chunk.length == 0 ? nullptr : source.data() + chunk.dataOffset,
+				chunk.length);
+		}
+		return out;
+	}
+
+	// 破坏 IDAT 内容但不修 CRC：解码器必须在 inflate 之前就用 CRC32 拒掉。
+	std::vector<unsigned char> CorruptPngChunkCrc(std::vector<unsigned char> source, std::string& error)
+	{
+		std::vector<PngChunkSpan> chunks;
+		if (!WalkPngChunks(source, chunks, error))
+		{
+			return {};
+		}
+		for (PngChunkSpan const& chunk : chunks)
+		{
+			if (chunk.type == "IDAT" && chunk.length > 2)
+			{
+				source[chunk.dataOffset + chunk.length / 2] ^= 0xFF;
+				return source;
+			}
+		}
+		error = "没有可破坏的 IDAT";
+		return {};
+	}
+
+	// 破坏 zlib 流最后 4 字节（adler32）并**重算该块 CRC**：只有 adler32 判据能拒它。
+	std::vector<unsigned char> CorruptPngAdlerKeepingCrc(std::vector<unsigned char> source, std::string& error)
+	{
+		std::vector<PngChunkSpan> chunks;
+		if (!WalkPngChunks(source, chunks, error))
+		{
+			return {};
+		}
+		for (size_t index = chunks.size(); index > 0; --index)
+		{
+			PngChunkSpan const& chunk = chunks[index - 1];
+			if (chunk.type != "IDAT" || chunk.length == 0)
+			{
+				continue;
+			}
+			// zlib 流的最后一个字节就是 adler32 的最低字节（这条流只有一块 IDAT）。
+			source[chunk.dataOffset + chunk.length - 1] ^= 0xFF;
+			const uint32_t crc = SourceImporterCrc32(source.data() + chunk.chunkOffset + 4,
+				static_cast<size_t>(chunk.length) + 4u);
+			for (int byte = 0; byte < 4; ++byte)
+			{
+				source[chunk.dataOffset + chunk.length + static_cast<size_t>(byte)] =
+					static_cast<unsigned char>((crc >> (24 - 8 * byte)) & 0xFFu);
+			}
+			return source;
+		}
+		error = "没有可破坏的 IDAT";
+		return {};
+	}
+
+	// 只带签名 + IHDR + IEND 的 PNG：用来构造"不支持的位深 / 颜色类型 / 隔行"（解码器在读 IHDR 时就拒）。
+	std::vector<unsigned char> BuildPngHeaderOnly(int width, int height, int bitDepth, int colorType, int interlace)
+	{
+		static unsigned char const signature[8] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+		std::vector<unsigned char> out(signature, signature + 8);
+		unsigned char header[13] = {};
+		header[0] = static_cast<unsigned char>((static_cast<uint32_t>(width) >> 24) & 0xFFu);
+		header[1] = static_cast<unsigned char>((static_cast<uint32_t>(width) >> 16) & 0xFFu);
+		header[2] = static_cast<unsigned char>((static_cast<uint32_t>(width) >> 8) & 0xFFu);
+		header[3] = static_cast<unsigned char>(static_cast<uint32_t>(width) & 0xFFu);
+		header[4] = static_cast<unsigned char>((static_cast<uint32_t>(height) >> 24) & 0xFFu);
+		header[5] = static_cast<unsigned char>((static_cast<uint32_t>(height) >> 16) & 0xFFu);
+		header[6] = static_cast<unsigned char>((static_cast<uint32_t>(height) >> 8) & 0xFFu);
+		header[7] = static_cast<unsigned char>(static_cast<uint32_t>(height) & 0xFFu);
+		header[8] = static_cast<unsigned char>(bitDepth);
+		header[9] = static_cast<unsigned char>(colorType);
+		header[10] = 0; // 压缩方法
+		header[11] = 0; // 滤波方法
+		header[12] = static_cast<unsigned char>(interlace);
+		AppendPngChunk(out, "IHDR", header, sizeof(header));
+		AppendPngChunk(out, "IEND", nullptr, 0);
+		return out;
+	}
+
+	// ---- 写死的 ② 序列化字节（CATX / CAMH 头与数据都按格式逐字段拼）----
+	void AppendLe32(std::vector<unsigned char>& out, uint32_t value)
+	{
+		for (int byte = 0; byte < 4; ++byte)
+		{
+			out.push_back(static_cast<unsigned char>((value >> (8 * byte)) & 0xFFu));
+		}
+	}
+
+	void AppendLe64(std::vector<unsigned char>& out, uint64_t value)
+	{
+		for (int byte = 0; byte < 8; ++byte)
+		{
+			out.push_back(static_cast<unsigned char>((value >> (8 * byte)) & 0xFFu));
+		}
+	}
+
+	void AppendLeFloat(std::vector<unsigned char>& out, float value)
+	{
+		uint32_t bits = 0;
+		static_assert(sizeof(bits) == sizeof(value), "float 必须是 4 字节");
+		std::memcpy(&bits, &value, sizeof(bits));
+		AppendLe32(out, bits);
+	}
+
+	std::vector<unsigned char> ExpandRgbToRgba(std::vector<unsigned char> const& rgb)
+	{
+		std::vector<unsigned char> rgba;
+		rgba.reserve(rgb.size() / 3 * 4);
+		for (size_t index = 0; index + 2 < rgb.size(); index += 3)
+		{
+			rgba.push_back(rgb[index]);
+			rgba.push_back(rgb[index + 1]);
+			rgba.push_back(rgb[index + 2]);
+			rgba.push_back(255); // RGB 源补 alpha = 255（design D2）
+		}
+		return rgba;
+	}
+
+	// CATX：magic + formatVersion 1 + 宽 + 高 + 格式 6 + 像素长度 + 像素（头部 28 字节）。
+	std::vector<unsigned char> ExpectedTextureBytes(std::vector<unsigned char> const& rgba, int width, int height)
+	{
+		static unsigned char const magic[4] = { 'C', 'A', 'T', 'X' };
+		std::vector<unsigned char> out(magic, magic + 4);
+		AppendLe32(out, 1u);
+		AppendLe32(out, static_cast<uint32_t>(width));
+		AppendLe32(out, static_cast<uint32_t>(height));
+		AppendLe32(out, 6u); // E_R8G8B8A8_UNORM
+		AppendLe64(out, static_cast<uint64_t>(rgba.size()));
+		out.insert(out.end(), rgba.begin(), rgba.end());
+		return out;
+	}
+
+	// CAMH：magic + formatVersion 1 + 顶点数 + 索引数 + 顶点字节长度 + 索引字节长度 + 两段载荷（头 32 字节）；
+	// 顶点 = 位置 float3 偏移 0 + 颜色 float3 偏移 12，步长 24（与 Mesh 三个常量一致），颜色写死白色。
+	std::vector<unsigned char> ExpectedMeshBytes(std::vector<float> const& positions,
+	                                             std::vector<uint32_t> const& indices)
+	{
+		static unsigned char const magic[4] = { 'C', 'A', 'M', 'H' };
+		const int vertexCount = static_cast<int>(positions.size() / 3);
+		std::vector<unsigned char> vertexData;
+		vertexData.reserve(static_cast<size_t>(vertexCount) * 24u);
+		for (int vertex = 0; vertex < vertexCount; ++vertex)
+		{
+			const size_t at = static_cast<size_t>(vertex) * 3;
+			AppendLeFloat(vertexData, positions[at]);
+			AppendLeFloat(vertexData, positions[at + 1]);
+			AppendLeFloat(vertexData, positions[at + 2]);
+			AppendLeFloat(vertexData, 1.0f);
+			AppendLeFloat(vertexData, 1.0f);
+			AppendLeFloat(vertexData, 1.0f);
+		}
+		std::vector<unsigned char> indexData;
+		indexData.reserve(indices.size() * 4u);
+		for (uint32_t index : indices)
+		{
+			AppendLe32(indexData, index);
+		}
+		std::vector<unsigned char> out(magic, magic + 4);
+		AppendLe32(out, 1u);
+		AppendLe32(out, static_cast<uint32_t>(vertexCount));
+		AppendLe32(out, static_cast<uint32_t>(indices.size()));
+		AppendLe64(out, static_cast<uint64_t>(vertexData.size()));
+		AppendLe64(out, static_cast<uint64_t>(indexData.size()));
+		out.insert(out.end(), vertexData.begin(), vertexData.end());
+		out.insert(out.end(), indexData.begin(), indexData.end());
+		return out;
+	}
+
+	bool WriteWholeFileBytes(std::filesystem::path const& path, std::vector<unsigned char> const& bytes)
+	{
+		std::ofstream out(path, std::ios::binary | std::ios::trunc);
+		if (!out)
+		{
+			return false;
+		}
+		if (!bytes.empty())
+		{
+			out.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+		}
+		return static_cast<bool>(out);
+	}
+
+	// 宽字符 → UTF-8：抓窗路径可能含中文（例如 evidence/3.2-截图.png），环境变量与文件系统都按 Wide 走，
+	// 只有日志需要 UTF-8 文本（`CA_LOG` 的编码是 UTF-8）。
+	std::string WideToUtf8(std::wstring const& text)
+	{
+		if (text.empty())
+		{
+			return std::string();
+		}
+		const int needed = ::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
+		                                         nullptr, 0, nullptr, nullptr);
+		if (needed <= 0)
+		{
+			return std::string();
+		}
+		std::string out(static_cast<size_t>(needed), '\0');
+		::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), out.data(), needed,
+		                      nullptr, nullptr);
+		return out;
+	}
+
+	// 目录快照：相对路径（正斜杠）→ 文件裸字节。用于"临时根零落盘 / 字节不变"与"真实 CAAssets 不变"。
+	using FileByteSnapshot = std::map<std::string, std::vector<unsigned char>>;
+
+	bool SnapshotFiles(std::filesystem::path const& root, FileByteSnapshot& out)
+	{
+		out.clear();
+		std::error_code error;
+		if (!std::filesystem::exists(root, error))
+		{
+			return true;
+		}
+		for (std::filesystem::recursive_directory_iterator it(root, error), end; it != end; it.increment(error))
+		{
+			if (error)
+			{
+				return false;
+			}
+			if (!it->is_regular_file())
+			{
+				continue;
+			}
+			std::vector<unsigned char> bytes;
+			if (!ReadWholeFileBytes(it->path(), &bytes))
+			{
+				return false;
+			}
+			out[std::filesystem::relative(it->path(), root).generic_string()] = bytes;
+		}
+		return true;
+	}
+}
+
+void TestSourceImporters(TestContext& ctx)
+{
+	auto fail = [](char const* code, std::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s", detail.c_str());
+		CA_LOG("[TestSourceImporters 失败] {}", detail);
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_SRCIMPORT_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_SRCIMPORT_HOST", std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+	if (ctx.pResourceManagingSystem == nullptr)
+	{
+		fail("E_SRCIMPORT_RESOURCE", "取不到 ResourceManagingSystem（资源模块没加载成功）");
+	}
+	if (ctx.pImportingSystem == nullptr)
+	{
+		fail("E_SRCIMPORT_RESOURCE", "取不到 ResourceImportingSystem（ScanSourceDirectory 属它，不是 ResourceManagingSystem）");
+	}
+
+	// ---- ⓪ 工作区、真实资产快照与写死夹具 ----
+	const std::string backend(ctx.backendName.c_str());
+	const std::filesystem::path workspace =
+		std::filesystem::temp_directory_path() / ("CascadedSourceImporters_" + backend);
+	const std::filesystem::path root = workspace / "root";
+	const std::filesystem::path sourceRoot = workspace / "source";
+	const std::filesystem::path readings = workspace / "readings.txt";
+	std::error_code filesystemError;
+	std::filesystem::remove_all(workspace, filesystemError);
+	std::filesystem::create_directories(root, filesystemError);
+	std::filesystem::create_directories(sourceRoot / "Images" / "A", filesystemError);
+	std::filesystem::create_directories(sourceRoot / "Models", filesystemError);
+
+	FileByteSnapshot realAssetsBefore;
+	if (!SnapshotFiles(std::filesystem::path(ctx.assetPath.c_str()), realAssetsBefore))
+	{
+		fail("E_SRCIMPORT_SNAPSHOT", "读真实 CAAssets 快照失败（临时根隔离判据没有基线）");
+	}
+
+	// 写死的夹具像素：4×4 RGBA8，第 i 个字节 = i + 1；改源版本 = 255 - i；RGB 版本第 i 个字节 = 3i + 1。
+	std::vector<unsigned char> fixturePixels(64);
+	std::vector<unsigned char> changedPixels(64);
+	for (int index = 0; index < 64; ++index)
+	{
+		fixturePixels[static_cast<size_t>(index)] = static_cast<unsigned char>(index + 1);
+		changedPixels[static_cast<size_t>(index)] = static_cast<unsigned char>(255 - index);
+	}
+	std::vector<unsigned char> rgbPixels(48);
+	for (int index = 0; index < 48; ++index)
+	{
+		rgbPixels[static_cast<size_t>(index)] = static_cast<unsigned char>(index * 3 + 1);
+	}
+
+	auto writePng = [](std::filesystem::path const& path, int width, int height, int comp,
+	                   std::vector<unsigned char> const& pixels, int filter) -> bool {
+		stbi_write_force_png_filter = filter;
+		const int written = stbi_write_png(path.generic_string().c_str(), width, height, comp, pixels.data(),
+			width * comp);
+		stbi_write_force_png_filter = -1; // 进程内全局变量：用完立刻还原，别影响别的用例
+		return written != 0;
+	};
+
+	// 五滤波各一张（filter 0..4）；filter 0 那张随后把 IDAT 拆成 3 块，顺带覆盖"多 IDAT 拼接"。
+	if (!writePng(sourceRoot / "Images" / "A" / "Test.png", 4, 4, 4, fixturePixels, 0) ||
+		!writePng(sourceRoot / "Images" / "A" / "Test1.png", 4, 4, 4, fixturePixels, 1) ||
+		!writePng(sourceRoot / "Images" / "A" / "Test2.png", 4, 4, 4, fixturePixels, 2) ||
+		!writePng(sourceRoot / "Images" / "A" / "Test3.png", 4, 4, 4, fixturePixels, 3) ||
+		!writePng(sourceRoot / "Images" / "A" / "Test4.png", 4, 4, 4, fixturePixels, 4) ||
+		!writePng(sourceRoot / "Images" / "A" / "Rgb.png", 4, 4, 3, rgbPixels, 0))
+	{
+		fail("E_SRCIMPORT_FIXTURE", "写 PNG 夹具失败（stbi_write_png 返回 0）");
+	}
+	{
+		std::vector<unsigned char> bytes;
+		if (!ReadWholeFileBytes(sourceRoot / "Images" / "A" / "Test.png", &bytes))
+		{
+			fail("E_SRCIMPORT_FIXTURE", "读回 Images/A/Test.png 失败");
+		}
+		const std::vector<unsigned char> split = SplitPngIdatChunks(bytes, 3);
+		if (split.empty() || !WriteWholeFileBytes(sourceRoot / "Images" / "A" / "Test.png", split))
+		{
+			fail("E_SRCIMPORT_FIXTURE", "把 Images/A/Test.png 的 IDAT 拆成 3 块失败（多 IDAT 夹具没造出来）");
+		}
+	}
+
+	// 立方体：8 个顶点 + 6 个四边面（扇形三角化 → 12 个三角 = 36 个索引）+ 1 个未被引用的顶点（保留）。
+	const std::vector<float> cubePositions = {
+		0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+		2.0f, 2.0f, 2.0f,
+	};
+	const std::vector<uint32_t> cubeIndices = {
+		0, 1, 2, 0, 2, 3,
+		4, 7, 6, 4, 6, 5,
+		0, 4, 5, 0, 5, 1,
+		1, 5, 6, 1, 6, 2,
+		2, 6, 7, 2, 7, 3,
+		0, 4, 7, 0, 7, 3,
+	};
+	auto buildObj = [&](float lastX, float lastY, float lastZ) {
+		std::ostringstream text;
+		text << "# source-importers-png-obj 夹具：立方体 6 个四边面（扇形三角化成 12 个三角）+ 一个未引用顶点\n";
+		for (int vertex = 0; vertex < 8; ++vertex)
+		{
+			text << "v " << cubePositions[static_cast<size_t>(vertex) * 3] << " "
+			     << cubePositions[static_cast<size_t>(vertex) * 3 + 1] << " "
+			     << cubePositions[static_cast<size_t>(vertex) * 3 + 2] << "\n";
+		}
+		text << "v " << lastX << " " << lastY << " " << lastZ << "\n";
+		text << "f 1 2 3 4\n";
+		text << "f 5 8 7 6\n";
+		text << "f 1 5 6 2\n";
+		text << "f 2 6 7 3\n";
+		text << "f 3 7 8 4\n";
+		// 负索引按 OBJ 语义相对**当前**顶点数：这里已经写了 9 个顶点（8 个立方体 + 1 个未引用），
+		// 所以 -9 = 第 1 个（索引 0）、-5 = 第 5 个（4）、-2 = 第 8 个（7）、-6 = 第 4 个（3），
+		// 与前面 `f 1 5 6 2` 等正面用的是同一组角，期望三角化结果仍是 (0,4,7)/(0,7,3)。
+		text << "f -9 -5 -2 -6\n";
+		const std::string textBytes = text.str();
+		return std::vector<unsigned char>(textBytes.begin(), textBytes.end());
+	};
+	if (!WriteWholeFileBytes(sourceRoot / "Models" / "B.obj", buildObj(2.0f, 2.0f, 2.0f)))
+	{
+		fail("E_SRCIMPORT_FIXTURE", "写 Models/B.obj 失败");
+	}
+
+	struct TextureCase
+	{
+		std::string relativeSource;
+		std::string relativeAsset;
+		std::vector<unsigned char> expected;
+	};
+	// 顺序 = 源相对路径的序数排序（导入器按它枚举，NextPath 顺序逐字可核）。
+	std::vector<TextureCase> textureCases = {
+		{ "Images/A/Rgb.png", "Images/A/Rgb.tex", ExpectedTextureBytes(ExpandRgbToRgba(rgbPixels), 4, 4) },
+		{ "Images/A/Test.png", "Images/A/Test.tex", ExpectedTextureBytes(fixturePixels, 4, 4) },
+		{ "Images/A/Test1.png", "Images/A/Test1.tex", ExpectedTextureBytes(fixturePixels, 4, 4) },
+		{ "Images/A/Test2.png", "Images/A/Test2.tex", ExpectedTextureBytes(fixturePixels, 4, 4) },
+		{ "Images/A/Test3.png", "Images/A/Test3.tex", ExpectedTextureBytes(fixturePixels, 4, 4) },
+		{ "Images/A/Test4.png", "Images/A/Test4.tex", ExpectedTextureBytes(fixturePixels, 4, 4) },
+	};
+	const std::string meshPath = "Models/B.mesh";
+	const std::vector<unsigned char> meshExpected = ExpectedMeshBytes(cubePositions, cubeIndices);
+	// 文件大小写死：4×4 RGBA8 的 CATX = 28 + 64 = 92；9 顶点 / 36 索引的 CAMH = 32 + 216 + 144 = 392。
+	if (textureCases[0].expected.size() != 92u || meshExpected.size() != 392u)
+	{
+		fail("E_SRCIMPORT_FIXTURE", "写死预期字节的长度不对（CATX 应当 92、CAMH 应当 392）");
+	}
+
+	struct SourceImporterEnvGuard
+	{
+		TestContext* context = nullptr;
+		std::filesystem::path workspacePath;
+		~SourceImporterEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS", nullptr);
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_PHASE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_READINGS", nullptr);
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_DIR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_CAPTURE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_SELFTEST", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_CAPTURE", nullptr);
+			if (context != nullptr && context->pResourceManagingSystem != nullptr)
+			{
+				context->pResourceManagingSystem->SetResourceRootPath("");
+			}
+			std::error_code ignored;
+			std::filesystem::remove_all(workspacePath, ignored);
+		}
+	} envGuard{ &ctx, workspace };
+
+	::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS", nullptr); // 门控关：先验零行为
+	::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_PHASE", "");
+	::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_READINGS", readings.generic_string().c_str());
+	::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_DIR", sourceRoot.generic_string().c_str());
+	::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr); // 外部遗留开关不许偷偷把编辑器拉起来
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	std::filesystem::remove(readings, filesystemError);
+	ctx.pResourceManagingSystem->SetResourceRootPath(root.generic_string());
+	const std::string baselineError = pScriptHost->LastError();
+
+	auto pumpPhase = [&](char const* phase) {
+		::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_PHASE", phase);
+		pScriptHost->Tick(0.016);
+		ctx.pWindowSystem->UpdateSystem();
+		const std::string hostError = pScriptHost->LastError();
+		if (hostError != baselineError)
+		{
+			fail("E_SRCIMPORT_HOST", std::string("阶段 ") + phase + " 之后宿主 LastError 非空：" + hostError +
+				"（读数：" + ReadProbeValue(readings, "driver_error") + "）");
+		}
+	};
+	auto read = [&](char const* key) { return ReadProbeValue(readings, key); };
+	auto readU64 = [&](char const* key) -> uint64_t { return std::strtoull(read(key).c_str(), nullptr, 10); };
+
+	// 真实着色器库对象：main 的启动扫描（真实 CAResources）之后注册表里就是它。本用例前几轮扫描会用
+	// 空库替换掉注册表里的登记，所以先抓住对象本身，起编辑器之前再装回注册表（不重编、不写文件）。
+	const std::string shaderLibraryPath =
+		(backend == "d3d12") ? "D3D12ShaderLibrary.shLib" : "VulkanShaderLibrary.shLib";
+	const castl::shared_ptr<resource_management::IResource> realShaderLibrary =
+		ctx.pResourceManagingSystem->GetResource(shaderLibraryPath);
+	if (!realShaderLibrary)
+	{
+		fail("E_SRCIMPORT_SHADERLIB", "启动扫描之后注册表里没有 " + shaderLibraryPath +
+			"（编辑器建 scene view 需要真实着色器库，本用例后面要把它装回注册表）");
+	}
+
+	// ---- ⓪ 门控关零行为：读数无活动 + 临时资源根无新文件 ----
+	pumpPhase("create-importers");
+	pumpPhase("report-round-1");
+	{
+		std::error_code existsError;
+		const bool readingsExist = std::filesystem::exists(readings, existsError);
+		if (readingsExist && std::filesystem::file_size(readings, existsError) != 0u)
+		{
+			fail("E_SRCIMPORT_GATE_OFF", "门控关时读数文件有活动（第一条：" + read("phase") + "）");
+		}
+		if (!std::filesystem::is_empty(root, existsError))
+		{
+			fail("E_SRCIMPORT_GATE_OFF", "门控关时临时资源根出现新文件（零落盘判据不成立）");
+		}
+		CA_LOG("[TestSourceImporters ⓪] 门控关零行为：读数无活动、临时根无新文件"
+		       "（CASCADED_SOURCE_IMPORTERS 未设；临时资源根 {}）", root.generic_string());
+	}
+
+	// ---- 反向函数表：必须用 CSharpHost 那一份（句柄表是 EXE/DLL 各一份）----
+	std::vector<unsigned char> importerTableStorage;
+	std::vector<unsigned char> productionsTableStorage;
+	std::vector<unsigned char> resourceTableStorage;
+	auto* importerTable = FetchReverseTable<resource_management__ResourceImporterApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__ResourceImporter, importerTableStorage);
+	auto* productionsTable = FetchReverseTable<resource_management__ResourceImporterProductionsApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__ResourceImporterProductions,
+		productionsTableStorage);
+	auto* resourceTable = FetchReverseTable<resource_management__IResourceApi_v2>(
+		pScriptHost, kBindingInterfaceIdresource_management__IResource, resourceTableStorage);
+	if (importerTable == nullptr || productionsTable == nullptr || resourceTable == nullptr)
+	{
+		fail("E_SRCIMPORT_TABLE", "取不到反向函数表（ResourceImporter / ResourceImporterProductions / IResource）");
+	}
+
+	// ---- ① 门控开：C# 造导入器强句柄 → C++ ResolveImpl → AddImporter ----
+	::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS", "1");
+	CA_LOG("[TestSourceImporters ①] 门控开 CASCADED_SOURCE_IMPORTERS=1；源根（CASCADED_SOURCE_IMPORTERS_DIR）={}；"
+	       "临时资源根={}；读数文件={}", sourceRoot.generic_string(), root.generic_string(),
+	       readings.generic_string());
+	pumpPhase("create-importers");
+	const uint64_t pngImporterHandle = readU64("png_importer_handle");
+	const uint64_t objImporterHandle = readU64("obj_importer_handle");
+	if (pngImporterHandle == 0u || objImporterHandle == 0u)
+	{
+		fail("E_SRCIMPORT_HANDLE", "C# 导入器没有强句柄（读数 png_importer_handle / obj_importer_handle 有 0）");
+	}
+	if (read("png_importer_type") != "PngTextureImporter" || read("obj_importer_type") != "ObjMeshImporter")
+	{
+		fail("E_SRCIMPORT_TYPE", "导入器具体类型读数不对：png=" + read("png_importer_type") +
+			"、obj=" + read("obj_importer_type"));
+	}
+	if (read("png_importer_tags") != "CSharp;Source;PNG" || read("obj_importer_tags") != "CSharp;Source;OBJ")
+	{
+		fail("E_SRCIMPORT_TAGS", "GetTags 读数不对：png=\"" + read("png_importer_tags") + "\"、obj=\"" +
+			read("obj_importer_tags") + "\"");
+	}
+	if (read("png_importer_base_type") != "ResourceImporterBase" ||
+		read("obj_importer_base_type") != "ResourceImporterBase")
+	{
+		fail("E_SRCIMPORT_BASE", "反向基类名不是 ResourceImporterBase：png=" + read("png_importer_base_type") +
+			"、obj=" + read("obj_importer_base_type"));
+	}
+	if (read("png_importer_keepalive") != "1" || read("obj_importer_keepalive") != "1")
+	{
+		fail("E_SRCIMPORT_KEEPALIVE", "导入器注册后的保活计数不是 1：png=" + read("png_importer_keepalive") +
+			"、obj=" + read("obj_importer_keepalive"));
+	}
+	if (read("png_source_directory") != sourceRoot.generic_string() ||
+		read("obj_source_directory") != sourceRoot.generic_string())
+	{
+		fail("E_SRCIMPORT_SOURCE_DIR", "GetSourceDirectory 读数不是 CASCADED_SOURCE_IMPORTERS_DIR：" +
+			read("png_source_directory"));
+	}
+	resource_management::ResourceImporter* pngImporter =
+		static_cast<resource_management::ResourceImporter*>(importerTable->ResolveImpl(pngImporterHandle));
+	resource_management::ResourceImporter* objImporter =
+		static_cast<resource_management::ResourceImporter*>(importerTable->ResolveImpl(objImporterHandle));
+	if (pngImporter == nullptr || objImporter == nullptr)
+	{
+		fail("E_SRCIMPORT_RESOLVE", "ResolveImpl(导入器强句柄) 返回空（句柄查不到代理）");
+	}
+	ctx.pImportingSystem->AddImporter(pngImporter);
+	ctx.pImportingSystem->AddImporter(objImporter);
+
+	auto requireFileBytes = [&](std::string const& relative, std::vector<unsigned char> const& expected,
+	                            char const* code) {
+		std::vector<unsigned char> actual;
+		const std::filesystem::path file = root / relative;
+		if (!ReadWholeFileBytes(file, &actual))
+		{
+			fail(code, "② 产物没有落盘（镜像路径 " + relative + "）");
+		}
+		if (actual == expected)
+		{
+			return;
+		}
+		size_t at = 0;
+		while (at < actual.size() && at < expected.size() && actual[at] == expected[at])
+		{
+			++at;
+		}
+		char detail[640] = {};
+		std::snprintf(detail, sizeof(detail),
+			"② 落盘字节与写死预期不符：%s（实际 %zu 字节、期望 %zu 字节；首个不同字节偏移 %zu：实际 %s、期望 %s）",
+			relative.c_str(), actual.size(), expected.size(), at,
+			at < actual.size() ? std::to_string(static_cast<int>(actual[at])).c_str() : "<越界>",
+			at < expected.size() ? std::to_string(static_cast<int>(expected[at])).c_str() : "<越界>");
+		fail(code, detail);
+	};
+
+	// ---- ① 第一次扫描：五滤波 + RGB + 四边面 OBJ → 镜像路径落盘 + 裸字节对拍 + HasResource ----
+	ctx.pImportingSystem->ScanSourceDirectory(sourceRoot.generic_string());
+	pumpPhase("report-round-1");
+	if (read("png_produce_count") != "1" || read("obj_produce_count") != "1")
+	{
+		fail("E_SRCIMPORT_PRODUCE", "第一次扫描后 Produce 次数不是 1：png=" + read("png_produce_count") +
+			"、obj=" + read("obj_produce_count"));
+	}
+	if (read("png_round1_count") != std::to_string(static_cast<int>(textureCases.size())) ||
+		read("obj_round1_count") != "1")
+	{
+		fail("E_SRCIMPORT_COUNT", "产出条数不对：png=" + read("png_round1_count") + "（期望 " +
+			std::to_string(static_cast<int>(textureCases.size())) + "）、obj=" + read("obj_round1_count"));
+	}
+	std::vector<uint64_t> round1PngHandles;
+	for (size_t index = 0; index < textureCases.size(); ++index)
+	{
+		const std::string pathKey = "png_round1_path_" + std::to_string(index);
+		if (read(pathKey.c_str()) != textureCases[index].relativeAsset)
+		{
+			fail("E_SRCIMPORT_NEXT_PATH", "NextPath 不是镜像路径：第 " + std::to_string(index) + " 条读 \"" +
+				read(pathKey.c_str()) + "\"、期望 \"" + textureCases[index].relativeAsset + "\"");
+		}
+		const uint64_t handle = readU64(("png_round1_handle_" + std::to_string(index)).c_str());
+		if (handle == 0u)
+		{
+			fail("E_SRCIMPORT_ASSET_HANDLE", "第 " + std::to_string(index) + " 条产出没有借用句柄（CreateProxy 没发句柄）");
+		}
+		if (read(("png_round1_keepalive_" + std::to_string(index)).c_str()) != "1")
+		{
+			fail("E_SRCIMPORT_ASSET_KEEPALIVE", "第 " + std::to_string(index) + " 条产出注册后保活计数不是 1");
+		}
+		round1PngHandles.push_back(handle);
+		requireFileBytes(textureCases[index].relativeAsset, textureCases[index].expected, "E_SRCIMPORT_BYTES");
+	}
+	const uint64_t round1ObjHandle = readU64("obj_round1_handle_0");
+	if (read("obj_round1_path_0") != meshPath || round1ObjHandle == 0u)
+	{
+		fail("E_SRCIMPORT_NEXT_PATH", "OBJ 的 NextPath / 句柄不对：path=\"" + read("obj_round1_path_0") + "\"");
+	}
+	requireFileBytes(meshPath, meshExpected, "E_SRCIMPORT_BYTES");
+	for (TextureCase const& fixture : textureCases)
+	{
+		if (!ctx.pResourceManagingSystem->HasResource(fixture.relativeAsset))
+		{
+			fail("E_SRCIMPORT_REGISTER", "管线没有注册镜像路径 " + fixture.relativeAsset + "（HasResource 假）");
+		}
+	}
+	if (!ctx.pResourceManagingSystem->HasResource(meshPath))
+	{
+		fail("E_SRCIMPORT_REGISTER", "管线没有注册镜像路径 " + meshPath + "（HasResource 假）");
+	}
+	CA_LOG("[TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、"
+	       "裸字节与写死预期一致、HasResource 真");
+
+	// ---- ③ 重导入：第二轮新对象（旧句柄 1001）+ 落盘字节不变 ----
+	{
+		auto firstTexture = ctx.pResourceManagingSystem->GetResource("Images/A/Test.tex");
+		if (!firstTexture)
+		{
+			fail("E_SRCIMPORT_GET", "第一次扫描后按镜像路径取不到 Images/A/Test.tex");
+		}
+		resource_management::IResource* const firstTextureRaw = firstTexture.get();
+		firstTexture.reset(); // 注册表是唯一强所有者：本地再持一份，旧代理就不会退役
+		ctx.pImportingSystem->ScanSourceDirectory(sourceRoot.generic_string());
+		pumpPhase("report-round-2");
+		if (read("png_produce_count") != "2" || read("obj_produce_count") != "2")
+		{
+			fail("E_SRCIMPORT_PRODUCE_2", "第二次扫描后 Produce 次数不是 2：png=" + read("png_produce_count") +
+				"、obj=" + read("obj_produce_count"));
+		}
+		std::vector<uint64_t> round2PngHandles;
+		for (size_t index = 0; index < textureCases.size(); ++index)
+		{
+			const uint64_t handle = readU64(("png_round2_handle_" + std::to_string(index)).c_str());
+			if (handle == 0u || handle == round1PngHandles[index])
+			{
+				fail("E_SRCIMPORT_NEW_OBJECT", "重导入第 " + std::to_string(index) +
+					" 条没有新句柄（0 或复用了第一轮的句柄）");
+			}
+			if (read(("png_round2_keepalive_" + std::to_string(index)).c_str()) != "1")
+			{
+				fail("E_SRCIMPORT_NEW_OBJECT", "重导入第 " + std::to_string(index) + " 条保活计数不是 1");
+			}
+			round2PngHandles.push_back(handle);
+			requireFileBytes(textureCases[index].relativeAsset, textureCases[index].expected,
+				"E_SRCIMPORT_REIMPORT_BYTES");
+		}
+		const uint64_t round2ObjHandle = readU64("obj_round2_handle_0");
+		if (round2ObjHandle == 0u || round2ObjHandle == round1ObjHandle)
+		{
+			fail("E_SRCIMPORT_NEW_OBJECT", "重导入的 OBJ 产出没有新句柄");
+		}
+		requireFileBytes(meshPath, meshExpected, "E_SRCIMPORT_REIMPORT_BYTES");
+		// 旧代理在替换时退役：判据是旧借用句柄按代际失效（ReleaseImpl == 1001）。
+		for (size_t index = 0; index < round1PngHandles.size(); ++index)
+		{
+			if (resourceTable->ReleaseImpl(round1PngHandles[index]) != 1001)
+			{
+				fail("E_SRCIMPORT_OLD_RELEASE", "重导入之后第一轮第 " + std::to_string(index) +
+					" 条句柄没有按代际失效（旧代理可能没被替换释放）");
+			}
+		}
+		if (resourceTable->ReleaseImpl(round1ObjHandle) != 1001)
+		{
+			fail("E_SRCIMPORT_OLD_RELEASE", "重导入之后第一轮 OBJ 句柄没有按代际失效");
+		}
+		auto secondTexture = ctx.pResourceManagingSystem->GetResource("Images/A/Test.tex");
+		if (!secondTexture || secondTexture.get() == firstTextureRaw)
+		{
+			fail("E_SRCIMPORT_REPLACE", "重导入替换没有生效：消费者还拿到旧对象（或取不到对象）");
+		}
+		secondTexture.reset();
+		CA_LOG("[TestSourceImporters ③] 重导入：第二轮新句柄、旧句柄 ReleaseImpl 全 1001、落盘字节仍等于写死预期");
+	}
+
+	// ---- ④ 源变动重建：改源 PNG / OBJ 内容重扫 → ② 产物 == 新源对应字节（与改前不同）----
+	{
+		if (!writePng(sourceRoot / "Images" / "A" / "Test.png", 4, 4, 4, changedPixels, 0))
+		{
+			fail("E_SRCIMPORT_REBUILD", "改源 PNG 失败（stbi_write_png 返回 0）");
+		}
+		if (!WriteWholeFileBytes(sourceRoot / "Models" / "B.obj", buildObj(3.0f, 3.0f, 3.0f)))
+		{
+			fail("E_SRCIMPORT_REBUILD", "改源 OBJ 失败");
+		}
+		std::vector<float> changedPositions = cubePositions;
+		changedPositions[24] = 3.0f;
+		changedPositions[25] = 3.0f;
+		changedPositions[26] = 3.0f;
+		const std::vector<unsigned char> changedTextureExpected = ExpectedTextureBytes(changedPixels, 4, 4);
+		const std::vector<unsigned char> changedMeshExpected = ExpectedMeshBytes(changedPositions, cubeIndices);
+
+		ctx.pImportingSystem->ScanSourceDirectory(sourceRoot.generic_string());
+		pumpPhase("report-round-3");
+		if (read("png_produce_count") != "3" || read("obj_produce_count") != "3")
+		{
+			fail("E_SRCIMPORT_PRODUCE_3", "第三次扫描后 Produce 次数不是 3：png=" + read("png_produce_count") +
+				"、obj=" + read("obj_produce_count"));
+		}
+		requireFileBytes("Images/A/Test.tex", changedTextureExpected, "E_SRCIMPORT_REBUILD");
+		requireFileBytes(meshPath, changedMeshExpected, "E_SRCIMPORT_REBUILD");
+		{
+			std::vector<unsigned char> textureBytes;
+			std::vector<unsigned char> meshBytes;
+			if (!ReadWholeFileBytes(root / "Images" / "A" / "Test.tex", &textureBytes) ||
+				!ReadWholeFileBytes(root / meshPath, &meshBytes))
+			{
+				fail("E_SRCIMPORT_REBUILD", "读 ② 产物失败");
+			}
+			if (textureBytes == textureCases[1].expected)
+			{
+				fail("E_SRCIMPORT_REBUILD", "改源之后 Images/A/Test.tex 没变（源变动没有触发重建）");
+			}
+			if (meshBytes == meshExpected)
+			{
+				fail("E_SRCIMPORT_REBUILD", "改源之后 Models/B.mesh 没变（源变动没有触发重建）");
+			}
+		}
+		const uint64_t round3TextureHandle = readU64("png_round3_handle_1");
+		if (round3TextureHandle == 0u || read("png_round3_count") != std::to_string(static_cast<int>(textureCases.size())))
+		{
+			fail("E_SRCIMPORT_REBUILD", "第三轮产出的条数 / 句柄不对");
+		}
+		CA_LOG("[TestSourceImporters ④] 源变动重建：改源 PNG/OBJ 后重扫，② 产物重建为新源对应字节（与改前不同）");
+	}
+
+	// ---- ①b 起编辑器之前：把真实 ShaderLibrary 装回注册表 ----
+	// 本用例的前几轮扫描都拿临时源根当扫描根，那里没有着色器源，着色器导入器产的是**空库**并由管线
+	// 注册成 `<后端>ShaderLibrary.shLib`（日志里 `Import complete. Files=0 ...` 那两行）。编辑器建
+	// scene view 时要用真实库里的 `Shaders/Test/TestSimpleTriangle`（渲染后端走
+	// `GetOrLoadResource<ShaderLibrary>("<后端>ShaderLibrary.shLib")`），空库会让着色器查找断在
+	// `ShaderLibrary::GetShaderFileInfo` 的调试断点（0x80000003）—— 所以起编辑器之前装回真实库。
+	// 做法：启动扫描之后先抓住真实库（`realShaderLibrary`），这里把它换回注册表（同一个对象），
+	// 不重编着色器、不写任何文件；真实 CAAssets 与临时根的文件都不动（⑥ 整段复核）。
+	{
+		if (!ctx.pResourceManagingSystem->ReleaseResource(shaderLibraryPath))
+		{
+			fail("E_SRCIMPORT_SHADERLIB", "释放空着色器库失败（注册表里没有 " + shaderLibraryPath + "）");
+		}
+		ctx.pResourceManagingSystem->RegisterResource(shaderLibraryPath, realShaderLibrary);
+		if (ctx.pResourceManagingSystem->GetResource(shaderLibraryPath).get() != realShaderLibrary.get())
+		{
+			fail("E_SRCIMPORT_SHADERLIB", "注册表没有装回同一个真实着色器库对象：" + shaderLibraryPath);
+		}
+		// 把临时根里的库文件同步成注册表里的真实库（否则根里留着第 3 轮的 40 字节空库文件，
+		// 与注册表对象不一致）；7 个资产的字节重写后不变（序列化确定性）。
+		ctx.pResourceManagingSystem->SerializeAll();
+		CA_LOG("[TestSourceImporters ①b] 真实着色器库已装回注册表：{}（启动扫描时抓住的同一个对象，未被空库替换）",
+		       shaderLibraryPath);
+	}
+
+	// ---- ② 资产浏览器 list-assets：写死 path / kind / registered / sizeBytes ----
+	{
+		const int editorPort = 18394; // 避开既有编辑器用例的 18390/18391/18392/18393
+		const char* editorReadingsPath = "test_output/source_importers_editor_readings.txt";
+		std::filesystem::create_directories("test_output", filesystemError);
+		std::filesystem::remove(editorReadingsPath, filesystemError);
+		::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
+		::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", std::to_string(editorPort).c_str());
+		::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", editorReadingsPath);
+		// 3.2 视觉验收的抓窗钩子（test 侧）：主循环设 CASCADED_SOURCE_IMPORTERS_CAPTURE=<png 路径> 时，
+		// 映射到编辑器既有的 dock 抓窗自检钩子 `CASCADED_EDITOR_SELFTEST=capture-dock=<png>`
+		//（EditorWindow 在 dock 控制器就绪后每 30 帧用 CapturePreviewAsync 覆盖落盘，不置前、不移动窗口）。
+		// 路径按 Wide 读环境变量再按 Wide 写回：中文文件名（evidence/3.2-截图.png）不会被 ACP 转换弄坏。
+		std::wstring capturePathWide;
+		{
+			const DWORD needed = ::GetEnvironmentVariableW(L"CASCADED_SOURCE_IMPORTERS_CAPTURE", nullptr, 0);
+			if (needed > 0)
+			{
+				std::wstring buffer(static_cast<size_t>(needed), L'\0');
+				const DWORD written =
+					::GetEnvironmentVariableW(L"CASCADED_SOURCE_IMPORTERS_CAPTURE", buffer.data(), needed);
+				if (written > 0 && written < needed)
+				{
+					buffer.resize(static_cast<size_t>(written));
+					capturePathWide = buffer;
+				}
+			}
+		}
+		const std::filesystem::path capturePath(capturePathWide);
+		const bool captureDock = !capturePathWide.empty();
+		if (captureDock)
+		{
+			std::error_code captureError;
+			std::filesystem::remove(capturePath, captureError); // 先删旧图，避免把上一轮的图当成本轮读数
+			const std::wstring selftest = L"capture-dock=" + capturePathWide;
+			::SetEnvironmentVariableW(L"CASCADED_EDITOR_SELFTEST", selftest.c_str());
+		}
+		else
+		{
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+		}
+		// 外部遗留的原型门控必须清掉：SPIKE=web-render 会起单控制器原型窗（没有底部 dock），
+		// 本用例的 dockController/dockNav 就绪判据与 list-assets 都会对不上。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_SELFTEST", nullptr);
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_CAPTURE", nullptr);
+		::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+		// WebView2 用户数据目录用默认（`%TEMP%\cascaded-editor-webview2`，与既有编辑器用例同一条已验证路径）；
+		// 外部若设过就清掉，免得指向一个不可用目录。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+
+		// 编号 1 = 一个存活窗口（默认 IWindow 表面），编号 2 = 窗口系统：编辑器另建它自己的目标窗口。
+		auto newWindow = ctx.pWindowSystem->NewWindow(640, 480, "Source Importers Test Host Window");
+		auto windowKeepAlive = newWindow.lock();
+		if (windowKeepAlive == nullptr)
+		{
+			fail("E_SRCIMPORT_EDITOR", "IWindowSystem::NewWindow 返回了空弱引用");
+		}
+		pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+		pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+		pScriptHost->Tick(0.016);
+		ctx.pWindowSystem->UpdateSystem();
+
+		HostProbeReadings editorReadings;
+		bool editorReady = false;
+		{
+			const auto startedAt = std::chrono::steady_clock::now();
+			int frames = 0;
+			while (true)
+			{
+				const double elapsedMs =
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+				if (elapsedMs > 40000.0)
+				{
+					break;
+				}
+				++frames;
+				pScriptHost->Tick(0.016);
+				ctx.pWindowSystem->UpdateSystem();
+				if ((frames % 5) == 0 && ReadEditorReadings(editorReadingsPath, &editorReadings) &&
+					editorReadings.Get("objects") == "1" && editorReadings.I64("exec") > 0 &&
+					editorReadings.Get("controller") == "1" && editorReadings.Get("nav") == "1" &&
+					editorReadings.Get("dockController") == "1" && editorReadings.Get("dockNav") == "1")
+				{
+					editorReady = true;
+					break;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
+		}
+		if (!editorReady)
+		{
+			ReadEditorReadings(editorReadingsPath, &editorReadings);
+			fail("E_SRCIMPORT_EDITOR", "编辑器 40 秒内没有进入运行态：objects=" + editorReadings.Get("objects") +
+				" controller=" + editorReadings.Get("controller") + " dockController=" +
+				editorReadings.Get("dockController") + " error=" + editorReadings.Get("error") +
+				"；LastError=" + pScriptHost->LastError());
+		}
+
+		WsClient client;
+		std::string wsError;
+		if (!client.Connect(editorPort, wsError))
+		{
+			fail("E_SRCIMPORT_EDITOR_WS", wsError);
+		}
+		auto sendText = [&](std::string const& json) {
+			if (!client.SendText(json, wsError))
+			{
+				fail("E_SRCIMPORT_EDITOR_WS", wsError);
+			}
+		};
+		sendText("{\"type\":\"hello\",\"protocolVersion\":1}");
+		{
+			std::string welcome;
+			const auto startedAt = std::chrono::steady_clock::now();
+			while (true)
+			{
+				const double elapsedMs =
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+				if (elapsedMs > 5000.0)
+				{
+					fail("E_SRCIMPORT_EDITOR_WELCOME", "5 秒内没有收到 welcome");
+				}
+				std::string message;
+				std::string receiveError;
+				if (client.ReceiveText(message, 100, receiveError))
+				{
+					if (message.find("\"type\":\"welcome\"") != std::string::npos)
+					{
+						welcome = message;
+						break;
+					}
+					continue;
+				}
+				if (receiveError.find("超时") == std::string::npos)
+				{
+					fail("E_SRCIMPORT_EDITOR_WELCOME", "握手期间连接被关闭：" + receiveError);
+				}
+				pScriptHost->Tick(0.016);
+				ctx.pWindowSystem->UpdateSystem();
+			}
+			if (welcome.find("\"protocolVersion\":1") == std::string::npos)
+			{
+				fail("E_SRCIMPORT_EDITOR_WELCOME", "welcome 的 protocolVersion 不是 1：" + welcome);
+			}
+		}
+		const int requestId = 401;
+		sendText("{\"type\":\"command\",\"requestId\":401,\"command\":\"list-assets\"}");
+		std::string result;
+		std::vector<std::string> events;
+		if (!PumpUntilResult(pScriptHost, ctx, client, requestId, result, events, 10000))
+		{
+			fail("E_SRCIMPORT_EDITOR_LIST", "list-assets 的 requestId=401 在 10 秒内没有 result");
+		}
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_SRCIMPORT_EDITOR_LIST", "list-assets 不是 ok：" + result);
+		}
+		const std::vector<std::string> entries = JsonAssetObjects(result);
+		auto requireField = [&](std::string const& entry, char const* key, std::string const& expected) {
+			std::string actual;
+			if (!JsonFieldOf(entry, key, actual))
+			{
+				fail("E_SRCIMPORT_EDITOR_FIELD", std::string("条目缺字段 ") + key + "：" + entry);
+			}
+			if (actual != expected)
+			{
+				fail("E_SRCIMPORT_EDITOR_FIELD", std::string("条目字段 ") + key + " = \"" + actual +
+					"\"，期望 \"" + expected + "\"；条目：" + entry);
+			}
+		};
+		for (TextureCase const& fixture : textureCases)
+		{
+			std::string entry;
+			if (!FindAssetObject(entries, fixture.relativeAsset, entry))
+			{
+				fail("E_SRCIMPORT_EDITOR_LIST", "list-assets 结果里没有 " + fixture.relativeAsset + "；结果：" + result);
+			}
+			requireField(entry, "path", fixture.relativeAsset);
+			requireField(entry, "kind", "texture");
+			requireField(entry, "registered", "true");
+			requireField(entry, "sizeBytes", std::to_string(fixture.expected.size()));
+			requireField(entry, "children", "[]");
+		}
+		{
+			std::string entry;
+			if (!FindAssetObject(entries, meshPath, entry))
+			{
+				fail("E_SRCIMPORT_EDITOR_LIST", "list-assets 结果里没有 " + meshPath + "；结果：" + result);
+			}
+			requireField(entry, "path", meshPath);
+			requireField(entry, "kind", "mesh");
+			requireField(entry, "registered", "true");
+			requireField(entry, "sizeBytes", std::to_string(meshExpected.size()));
+		}
+		CA_LOG("[TestSourceImporters ②] 资产浏览器 list-assets：6 条 texture + 1 条 mesh 的 path/kind/"
+		       "registered/sizeBytes 全对");
+
+		// 3.2 视觉验收（test 侧支撑）：设了 CASCADED_SOURCE_IMPORTERS_CAPTURE 就再推 ~3 秒的帧，
+		// 让 dock 页面把 list-assets 的结果画出来、并让抓窗钩子（每 30 帧一张）覆盖落盘几张；
+		// 这里只断言"确实抓到非空 PNG"，画面内容由主循环 read_image 核对。
+		if (captureDock)
+		{
+			const auto captureStartedAt = std::chrono::steady_clock::now();
+			int captureTicks = 0;
+			while (true)
+			{
+				const double elapsedMs = std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - captureStartedAt).count();
+				if (elapsedMs > 3000.0)
+				{
+					break;
+				}
+				++captureTicks;
+				pScriptHost->Tick(0.016);
+				ctx.pWindowSystem->UpdateSystem();
+				std::this_thread::sleep_for(std::chrono::milliseconds(6));
+			}
+			std::error_code captureError;
+			std::uintmax_t captureSize = 0;
+			if (std::filesystem::exists(capturePath, captureError))
+			{
+				captureSize = std::filesystem::file_size(capturePath, captureError);
+			}
+			if (captureSize == 0)
+			{
+				fail("E_SRCIMPORT_CAPTURE", "CASCADED_SOURCE_IMPORTERS_CAPTURE 设了但没抓到 dock 画面（" +
+					WideToUtf8(capturePathWide) + "，推了 " + std::to_string(captureTicks) + " 帧）");
+			}
+			CA_LOG("[TestSourceImporters ②抓窗] dock 画面已落盘：{}（{} 字节，推了 {} 帧）",
+			       WideToUtf8(capturePathWide), captureSize, captureTicks);
+		}
+
+		// 收尾：主动停服务（与 TestEditorAssetBrowser 同一判据），再关本用例的宿主窗口。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", "1");
+		pScriptHost->Tick(0.016);
+		ctx.pWindowSystem->UpdateSystem();
+		::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+		if (!LogContains(editorReadingsPath, "已关闭（测试请求停止"))
+		{
+			fail("E_SRCIMPORT_EDITOR_STOP", "CASCADED_EDITOR_STOP=1 之后没有服务关闭日志");
+		}
+		client.Close();
+		windowKeepAlive->CloseWindow();
+		windowKeepAlive.reset();
+		ctx.pWindowSystem->UpdateSystem();
+		::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr); // 抓窗钩子只在编辑器存活期有效
+		if (pScriptHost->LastError() != baselineError)
+		{
+			fail("E_SRCIMPORT_HOST", std::string("编辑器收尾之后宿主 LastError 变了：") + pScriptHost->LastError());
+		}
+	}
+
+	// ---- ⑤ 红态：坏 PNG / 坏 OBJ 一次扫描一例（好坏夹具分阶段，D5）----
+	{
+		std::vector<unsigned char> validFilter1;
+		std::vector<unsigned char> validRgba;
+		if (!ReadWholeFileBytes(sourceRoot / "Images" / "A" / "Test1.png", &validFilter1) ||
+			!ReadWholeFileBytes(sourceRoot / "Images" / "A" / "Test.png", &validRgba))
+		{
+			fail("E_SRCIMPORT_RED_FIXTURE", "读回合法 PNG 失败（红态夹具没有基线）");
+		}
+		std::string fixtureError;
+		std::vector<unsigned char> badSignature = validRgba;
+		badSignature[1] ^= 0xFF;
+		std::vector<unsigned char> badTruncated(validRgba.begin(), validRgba.end() - 20);
+		const std::vector<unsigned char> badCrc = CorruptPngChunkCrc(validFilter1, fixtureError);
+		const std::vector<unsigned char> badAdler = CorruptPngAdlerKeepingCrc(validFilter1, fixtureError);
+		const std::vector<unsigned char> badGray = BuildPngHeaderOnly(2, 2, 8, 0, 0);
+		const std::vector<unsigned char> badGrayAlpha = BuildPngHeaderOnly(2, 2, 8, 4, 0);
+		const std::vector<unsigned char> badPalette = BuildPngHeaderOnly(2, 2, 8, 3, 0);
+		const std::vector<unsigned char> bad16Bit = BuildPngHeaderOnly(2, 2, 16, 6, 0);
+		const std::vector<unsigned char> badInterlaced = BuildPngHeaderOnly(2, 2, 8, 6, 1);
+
+		const std::string badEmptyObj = "v 0 0 0\n";                                   // 有顶点没有面
+		const std::string badIndexObj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 4\n";        // 索引 4 越界
+		const std::string badMissingObj = "f 1 2 3\n";                                  // 面引用了不存在的顶点
+		const std::string badCoordinateObj = "v 1 2\n";                                 // 坐标缺分量
+
+		struct RedCase
+		{
+			char const* label;
+			char const* prefix;
+			char const* fileName;
+			std::vector<unsigned char> bytes;
+			char const* expectedFragment;
+		};
+		std::vector<RedCase> redCases = {
+			{ "bad-png-signature", "png", "BadSignature.png", badSignature, "签名" },
+			{ "bad-png-truncated", "png", "BadTruncated.png", badTruncated, "截断" },
+			{ "bad-png-crc", "png", "BadCrc.png", badCrc, "CRC32" },
+			{ "bad-png-adler", "png", "BadAdler.png", badAdler, "adler32" },
+			{ "bad-png-gray", "png", "BadGray.png", badGray, "灰度" },
+			{ "bad-png-gray-alpha", "png", "BadGrayAlpha.png", badGrayAlpha, "灰度 + alpha" },
+			{ "bad-png-palette", "png", "BadPalette.png", badPalette, "调色板" },
+			{ "bad-png-16bit", "png", "Bad16Bit.png", bad16Bit, "位深" },
+			{ "bad-png-interlaced", "png", "BadInterlaced.png", badInterlaced, "Adam7" },
+			{ "bad-obj-empty", "obj", "BadEmpty.obj",
+				std::vector<unsigned char>(badEmptyObj.begin(), badEmptyObj.end()), "空网格" },
+			{ "bad-obj-index", "obj", "BadIndex.obj",
+				std::vector<unsigned char>(badIndexObj.begin(), badIndexObj.end()), "越界" },
+			{ "bad-obj-missing", "obj", "BadMissing.obj",
+				std::vector<unsigned char>(badMissingObj.begin(), badMissingObj.end()), "越界" },
+			{ "bad-obj-coordinate", "obj", "BadCoordinate.obj",
+				std::vector<unsigned char>(badCoordinateObj.begin(), badCoordinateObj.end()), "个坐标" },
+		};
+
+		int pngErrorCount = 0;
+		int objErrorCount = 0;
+		for (RedCase const& red : redCases)
+		{
+			int expectedErrorCount = 0;
+			if (std::strcmp(red.prefix, "obj") == 0)
+			{
+				++objErrorCount;
+				expectedErrorCount = objErrorCount;
+			}
+			else
+			{
+				++pngErrorCount;
+				expectedErrorCount = pngErrorCount;
+			}
+			if (red.bytes.empty())
+			{
+				fail("E_SRCIMPORT_RED_FIXTURE", std::string("红态夹具 ") + red.label + " 没造出来（" + fixtureError + "）");
+			}
+			const std::filesystem::path badDir = workspace / "bad" / red.label;
+			std::error_code caseError;
+			std::filesystem::remove_all(badDir, caseError);
+			std::filesystem::create_directories(badDir, caseError);
+			if (!WriteWholeFileBytes(badDir / red.fileName, red.bytes))
+			{
+				fail("E_SRCIMPORT_RED_FIXTURE", "写红态夹具失败：" + (badDir / red.fileName).generic_string());
+			}
+			::SetEnvironmentVariableA("CASCADED_SOURCE_IMPORTERS_DIR", badDir.generic_string().c_str());
+			std::filesystem::remove(readings, caseError);
+			FileByteSnapshot rootBefore;
+			if (!SnapshotFiles(root, rootBefore))
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 前读临时根快照失败");
+			}
+
+			std::string thrownText;
+			int thrownCode = 0;
+			try
+			{
+				ctx.pImportingSystem->ScanSourceDirectory(badDir.generic_string());
+			}
+			catch (cascaded_reverse::ReverseBindingError const& error)
+			{
+				thrownCode = error.Code();
+				thrownText = error.what();
+			}
+			catch (std::exception const& error)
+			{
+				thrownText = error.what();
+			}
+			if (thrownCode != 1012)
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 没有在管线边界变形为 1012（读到 " +
+					std::to_string(thrownCode) + "：" + thrownText + "）");
+			}
+			if (thrownText.find("AssetFormatException") == std::string::npos ||
+				thrownText.find(red.expectedFragment) == std::string::npos)
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 的 1012 文本没有点名 " +
+					red.expectedFragment + "：" + thrownText);
+			}
+
+			// C# 读数通道（D5）：类型 + 消息 + 源路径 + 计数都必须点名。
+			const std::string typeKey = std::string(red.prefix) + "_error_type";
+			const std::string messageKey = std::string(red.prefix) + "_error_message";
+			const std::string pathKey = std::string(red.prefix) + "_error_asset_path";
+			const std::string countKey = std::string(red.prefix) + "_error_count";
+			if (read(typeKey.c_str()) != "AssetFormatException")
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 的读数异常类型是 \"" +
+					read(typeKey.c_str()) + "\"，期望 AssetFormatException");
+			}
+			if (read(messageKey.c_str()).find(red.expectedFragment) == std::string::npos)
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 的读数是异常消息里没有 \"" +
+					red.expectedFragment + "\"：" + read(messageKey.c_str()));
+			}
+			if (read(pathKey.c_str()) != red.fileName)
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 的读数源路径是 \"" +
+					read(pathKey.c_str()) + "\"、期望 \"" + red.fileName + "\"");
+			}
+			if (read(countKey.c_str()) != std::to_string(expectedErrorCount))
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 的异常计数是 \"" +
+					read(countKey.c_str()) + "\"、期望 \"" + std::to_string(expectedErrorCount) + "\"");
+			}
+
+			// 不落盘垃圾资产：临时根一个字节都没变。
+			FileByteSnapshot rootAfter;
+			if (!SnapshotFiles(root, rootAfter))
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 后读临时根快照失败");
+			}
+			if (rootAfter != rootBefore)
+			{
+				fail("E_SRCIMPORT_RED", std::string("红态 ") + red.label + " 改动了临时资源根（不许落盘垃圾资产）");
+			}
+			CA_LOG("[TestSourceImporters ⑤] 红态 {}：管线边界错误码 {} + C# 读数点名 AssetFormatException（{}），"
+			       "临时根字节不变", red.label, thrownCode, red.expectedFragment);
+		}
+	}
+
+	// ---- ⑥ 真实 CAAssets 字节不变（临时根隔离判据整段收尾核）----
+	{
+		FileByteSnapshot realAssetsAfter;
+		if (!SnapshotFiles(std::filesystem::path(ctx.assetPath.c_str()), realAssetsAfter))
+		{
+			fail("E_SRCIMPORT_ISOLATION", "收尾读真实 CAAssets 快照失败");
+		}
+		if (realAssetsAfter != realAssetsBefore)
+		{
+			fail("E_SRCIMPORT_ISOLATION", "真实 CAAssets 被改动了（临时根隔离不成立：shLib / 探针残留必须字节不变）");
+		}
+	}
+
+	CA_LOG("TestSourceImporters 通过：门控关零行为 → 门控开测试驱动接入（C# 句柄 → ResolveImpl → "
+	       "AddImporter → ScanSourceDirectory）→ 五滤波 + 多 IDAT + RGB + 四边面 OBJ 的镜像路径落盘与裸字节"
+	       "对拍 → 资产浏览器 list-assets 条目 → 重导入新对象（旧句柄 1001）→ 源变动重建 → 13 个红态读数点名"
+	       " → 真实 CAAssets 字节不变");
+}
+
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
 // 10 类窗口/输入回调走一整圈：C++ 侧用 `fake_window::System` 确定性触发，托管侧注册真实
 // 逐类对拍。生命周期也在这里验：替换后只有新委托执行、置空后旧委托不再执行、重绑会注销旧表面对象、
@@ -10433,6 +11784,10 @@ int main(int argc, char* argv[])
 		// 同样是独立进程用例（同一个一次性状态机的理由），只按
 		// `--test TestWebRenderSpike --backend d3d12` 跑；进了清单但不进全量顺序跑。
 		std::cout << "  TestWebRenderSpike\n";
+		// source-importers-png-obj 3.1：第 25 项（PNG/OBJ 源导入器：镜像路径落盘 + 裸字节对拍 +
+		// 资产浏览器 list-assets 联动 + 红态读数）。**独立进程跑**（编辑器服务一次性状态机 + 换资源根），
+		// 所以它进了清单但**不进下面的全量顺序跑**，只按 `--test TestSourceImporters` 跑。
+		std::cout << "  TestSourceImporters\n";
 		return 0;
 	}
 
@@ -10782,6 +12137,12 @@ int main(int argc, char* argv[])
 	{
 		// editor-web-render-spike 2.2：独立进程用例（编辑器服务一次性状态机），只支持 --backend d3d12。
 		runTestWithDiagnostics("TestWebRenderSpike", TestWebRenderSpike);
+	}
+		else if (strcmp(testName.c_str(), "TestSourceImporters") == 0)
+	{
+		// source-importers-png-obj 3.1：独立进程用例（编辑器服务一次性状态机 + 换资源根 / 注册表），
+		// 只走这条单跑分发，不排进下面的全量顺序跑。
+		runTestWithDiagnostics("TestSourceImporters", TestSourceImporters);
 	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{

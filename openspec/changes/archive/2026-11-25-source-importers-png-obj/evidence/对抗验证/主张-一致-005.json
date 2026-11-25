@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-005",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "管线 ScanSourceDirectory 拉取→RegisterResource（② 路径）→SerializeAll 落盘 CATX/CAMH。重导入替换沿用管线（第二轮新对象）。",
+  "problem": "若按 D4 第一条（工厂 + AssetDatabase）实现，第一轮 Produce 就已经把对象注册进同一个注册表；第二轮 Produce 再对同一路径调 `AssetDatabase.Create` 会撞门面的同路径守卫：「资源路径已存在，先释放再新建」→ 抛 `IResourceRegistryException`（1014）→ 异常穿出 `Produce()`，整个 `ScanSourceDirectory` 中止（本轮连 `SerializeAll` 都到不了）。这直接违反本 change spec 的重导入场景「同一源文件第二轮扫描导入 → 管线 MUST 注册新对象替换旧（旧代理退役）」。即便导入器自己先 `ReleaseResource`（那更是直接调注册表），管线随后还会对同一个已被注册表持有的 C# 对象再包一层 `shared_ptr(produced, delete)`、先 `ReleaseResource(relativePath)` 再 `RegisterResource`，同一托管对象出现两个代理/两份强所有权，与既有 `resource-importer` 规范的「CreateProxy 单一强所有者」冲突。",
+  "evidence": "`CSharpHost/private/CSharpHost.cpp` 第 231 行逐字：`ReportRejected(\"资源路径已存在，先释放再新建：\\\"\" + path + \"\\\"\");`（在 `if (m_registry->HasResource(path))` 分支内，第 229–233 行）。`openspec/specs/csharp-resource-registry/spec.md` 第 49 行：「**同路径已有条目时门面 MUST 先拒绝**（经错误通道 1014 点名「路径已存在，先释放再新建」）」。`GeneralResources/private/ResourceImportingSystem.cpp` 第 87–92 行：`castl::shared_ptr<IResource> resource(produced, [](IResource* releasedObj) { delete releasedObj; }); … m_ResourceManagingSystem->ReleaseResource(relativePath); m_ResourceManagingSystem->RegisterResource(relativePath, resource);`。`openspec/specs/resource-importer/spec.md` 第 24 行：「C# 导入器 NextResource 返回新 C# 资源 MUST 经**返回反向接口裸指针的现有投影 CreateProxy**（新对象尚无代理/借用句柄，MUST NOT 用 ResolveImpl）。MUST NOT 发明\"借用+释放回调作 deleter\"thunk。」本 change spec 第 40–43 行的重导入场景要求「第二轮 MUST 注册新对象替换旧（旧代理退役）」。",
+  "suggestion": "同 主张-一致-004：删掉工厂/AssetDatabase 路径。若确实要保留「复用资产工厂」的目标，则必须把整条链改写为不注册的资产构造路径（新增 AssetDatabase 的「只造不注册」入口 + 工厂注册任务），并新增场景覆盖「第二轮扫描不撞同路径守卫、旧代理退役计数 1→0」；否则不要保留这条路径。"
+}

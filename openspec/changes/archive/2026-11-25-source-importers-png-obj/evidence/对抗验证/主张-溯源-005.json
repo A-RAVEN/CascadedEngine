@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-005",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；spec.md",
+  "anchor": "design.md:7「Texture2D（RGBA8 像素，CATX 格式，HeaderSize 28）、Mesh（…CAMH 格式，HeaderSize 32）」；spec.md:5「Format=E_R8G8B8A8_UNORM」",
+  "claim": "怀疑 HeaderSize 28 / 32 与「RGBA8 格式值 6」是编的数字。实测 Texture2D.HeaderSize=28、Mesh.HeaderSize=32；E_R8G8B8A8_UNORM 在生成的枚举里逐字等于 6，三处都有出处，主张不成立（falsePositive）。",
+  "evidence": "证据-溯源-005.md：Texture2D.cs:29、Mesh.cs:36、ETextureFormat.Bindings.cs:17 原文与命令输出；另附 ResourceAssetProbe.cs:44 把 6 写成注释的既有先例。"
+}

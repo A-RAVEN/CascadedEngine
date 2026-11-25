@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-影响-001",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md D1；openspec/changes/source-importers-png-obj/tasks.md 2.3；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md「导入必须与注册分离…」",
+  "anchor": "design.md D1「门控 CASCADED_SOURCE_IMPORTERS=1（默认关，Host.Tick 里 EnsureBound 后调；零行为不影响现有用例）」；tasks.md 2.3「门控接入 Host.cs（EnsureBound 后调两导入器 Tick，默认关零行为）+ 管线 ScanSourceDirectory 拉取注册落盘（复用既有管线，不改接口）」",
+  "problem": "只按任务改 Host.cs 时，C# 导入器到不了管线：C# 侧没有 ScanSourceDirectory 或 AddImporter 的任何绑定（Scripting 全树 *.cs 只命中 AssetDatabase.cs 的一句注释），ResourceImportingSystem 头也没有 CA_BIND_REVERSE；AddImporter 现有调用点只有 Vulkan/D3D12 两个着色器导入器与 tester 的 TestCSharpImporter（C++ 里先 ResolveImpl(句柄) 再 AddImporter），ScanSourceDirectory 只在 tester 的 main 与用例里调。因此 Host.Tick 里创建的两个 C# 导入器既进不了 m_ResourceImporters，也没有任何触发扫描的入口——任务 2.3 的「② 落盘 + HasResource 真」在只改 Host.cs 的实现下不可达；缺的是 C++ 侧 AddImporter + ScanSourceDirectory 这一步（任务未点），以及把 Create 返回句柄交给 C++ 的通道（先例 TestCSharpImporter 走 CASCADED_CSHARP_IMPORTER_READINGS 读数文件，工件没有为它留通道）。另外 EnsureBound 只绑 IWindow / IWindowSystem 与渲染表；导入器要用的 ResourceImporter / ResourceImporterProductions / IResource 三张反向表只由 ResourceImporterProbe 私有的 BindReverseTables 在 CASCADED_CSHARP_IMPORTER_PROBE=1 时绑，所以「EnsureBound 后调」既不构成充分前提，也没说明这三张表由谁绑。",
+  "evidence": "见 `证据-影响-001.md`：① C# 侧 ScanSourceDirectory/AddImporter/ResourceImportingSystem 全树 grep 仅 1 句注释；② ResourceImportingSystem.h 无 CA_BIND_REVERSE（对比同目录 ResourceImporter.h 有）；③ AddImporter/ScanSourceDirectory 调用点清单（Renderer 两处 + Main.cpp 8881/8882/8887/8979/10588）；④ TestCSharpImporter 的 ResolveImpl→AddImporter 与 CASCADED_CSHARP_IMPORTER_READINGS 交接；⑤ EnsureBound 只绑窗口/系统/渲染表、BindReverseTables 私有且探针门控；⑥ 未绑表时 Create 抛「函数表还没绑定」。",
+  "suggestion": "在 tasks 2.3/3.1 之前补一条 C++ 侧接线任务：C# Tick 创建导入器并把句柄写进新增读数变量（如 CASCADED_SOURCE_IMPORTERS_READINGS）→ C++ ResolveImpl + AddImporter → 显式调 ScanSourceDirectory；同时点名三张反向表的绑定位置（Host 侧统一绑或导入器自绑）。验收：门控开→句柄读数非 0→ResolveImpl 非空→扫描后 ② 落盘且 HasResource 真。"
+}

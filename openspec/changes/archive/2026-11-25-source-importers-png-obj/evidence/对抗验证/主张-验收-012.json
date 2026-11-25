@@ -1,0 +1,9 @@
+{
+  "id": "验收-012",
+  "face": "⑥ 截图视觉验收",
+  "severity": "misleading",
+  "claim": "截图验收没有写死应出现的条目（路径/kind/registered/数量），只写「核对底部 dock 显示 kind=texture/mesh registered 条目」；「read_image 核对记录」可以写成「看到 texture/mesh 条目，通过」的散文。CAAssets 若已有上次导入的 .tex/.mesh，旧条目也能满足「真实条目」，无法证明这次导入成功。",
+  "location": "openspec/changes/source-importers-png-obj/tasks.md:21；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md:49-52；openspec/changes/source-importers-png-obj/design.md:46",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-012.md",
+  "suggested_fix": "tasks 3.2 写死截图必须出现两行：Textures/<唯一夹具名>.tex（kind=texture、registered=true）与 Meshes/<唯一夹具名>.mesh（kind=mesh、registered=true）；夹具名带唯一后缀（例如带本次时间戳/进程号），避免旧 CAAssets 条目冒充。截图文件名固定为 evidence/3.2-截图.png，并同时落一份同一时点的 list-assets 读数（path/nodeId/sizeBytes），read_image 核对的两行必须与读数逐项一致；缺任一行或读数对不上即判不通过。抓窗可用既有 CASCADED_EDITOR_SELFTEST=capture-dock=<png>（CSharpHost/README.md:428）。"
+}

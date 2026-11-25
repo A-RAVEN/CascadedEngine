@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-016",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；tasks.md",
+  "anchor": "design.md:22「`GetDestDirectory` 返回 ② 目标（CAAssets 下 Textures/ 或 Meshes/）」；tasks.md:14「GetDestDirectory（CAAssets/Textures）…（NextPath=Textures/<名>.tex）」",
+  "claim": "工件把 GetDestDirectory 写成决定落盘位置的东西（「返回 ② 目标」）。实测管线只把 declaredDest 塞进原生 scan context（C# 读不到），注册键与落盘路径全部来自 NextPath + 资源根：`RegisterResource(relativePath, …)` 与 `m_AssetRootPath / key`。所以 GetDestDirectory 返回什么都不影响文件落到哪；真正决定 CAAssets/Textures/*.tex 的是 NextPath 里的 `Textures/` 前缀。按工件字面，实现者可能以为 NextPath 只写文件名，落盘就会跑到 CAAssets/<名>.tex，验收断言 CAAssets/Textures/*.tex 当场失败。",
+  "evidence": "证据-溯源-016.md：ResourceImportingSystem.cpp:55-65/77-96/116-125 原文；design/tasks 的目录声明引文。"
+}

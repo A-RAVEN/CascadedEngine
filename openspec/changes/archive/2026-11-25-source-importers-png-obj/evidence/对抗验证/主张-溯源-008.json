@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-008",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；spec.md；tasks.md",
+  "anchor": "design.md:26「D2 PNG 解码纯 C#（不动绑定面/无外部依赖）」；design.md:28「**不调 native stb**」；tasks.md:5「纯 C# 解码/解析，不动绑定面」",
+  "claim": "怀疑「纯 C# 无外部依赖」是空话：DeflateStream 可能要靠额外 NuGet 包或 native zlib。实测 Scripting.Managed 目标 net8.0，唯一的 PackageReference 是既有的 Microsoft.Web.WebView2；System.IO.Compression 是 .NET 8 共享框架自带的程序集（本机 8.0.x 三份都有该 DLL），解码路径不需要新增任何依赖，主张成立（falsePositive）。",
+  "evidence": "证据-溯源-008.md：csproj 原文、Microsoft Learn 程序集清单、本机共享框架文件清单。"
+}

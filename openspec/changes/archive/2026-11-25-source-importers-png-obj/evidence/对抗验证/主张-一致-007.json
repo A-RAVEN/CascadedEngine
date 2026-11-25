@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-007",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md",
+  "anchor": "源目录 MUST 可配（env 覆盖，默认仓库根/SourceAssets），测试用临时目录预置夹具 MUST NOT 动用户真实源。",
+  "problem": "spec/design/tasks 三处都写默认「仓库根/SourceAssets」，但托管侧没有任何「仓库根」推导：`Scripting/` 里 `Directory.GetParent` / `GetCurrentDirectory` 命中 0，唯一的静态根解析是编辑器按 bin 拼 editor-web（EditorService.cs 的 ResolveEditorWebRoot），与仓库根无关；CWD 是构建产物 bin 目录。仓库里也没有 SourceAssets 目录，且没有任何任务创建它。既有先例是 C++ 把绝对源根经环境变量交给 C# 导入器（`CASCADED_CSHARP_IMPORTER_SOURCE` = `ctx.resourcePath` = 仓库根/CAResources）；`ResourceImporter.h` 又要求 C# 导入器必须自己声明目录、不能留空。于是 spec 的这条 MUST 无法实现：写死『SourceAssets』会相对 bin 目录解析，写死绝对路径又依赖用户机器。",
+  "evidence": "`openspec/changes/source-importers-png-obj/spec.md` 第 33 行原文见 anchor；`design.md` 第 22 行「默认仓库根/SourceAssets……目录自声明」；`tasks.md` 2.1「默认仓库根/SourceAssets」。实测：`Test-Path SourceAssets` = False；`Scripting` 内 `Directory.GetParent|GetCurrentDirectory` 命中 0；`Test/GPUBackendTester/Main.cpp` 第 10495 行 `ctx.resourcePath = (rootPath / \"CAResources\").string();`、第 10588 行 `ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);`、第 8801 行 `::SetEnvironmentVariableA(\"CASCADED_CSHARP_IMPORTER_SOURCE\", ctx.resourcePath.c_str());`；`ResourceImporter.h` 第 27–28 行「C# 反向实现读不到这两个值（托管代码没有入口），所以 C# 导入器 MUST 在自己的 GetSourceDirectory()/GetDestDirectory() 里声明目录 —— 不能留空。」",
+  "suggestion": "把三处统一改成可执行口径：① 源根 MUST 由 `CASCADED_SOURCE_IMPORTERS_DIR`（绝对路径）提供；未提供时导入器 MUST 零行为并打一行点名日志、MUST NOT 猜仓库根；② 新增一条任务在仓库内建 `SourceAssets/`（含已知 PNG/OBJ 夹具）并登记进文档，默认值改为「仓库根的 SourceAssets（由 C++ 侧按 rootPath 拼绝对路径后经 env 注入）」，与既有 `CAResources` 注入方式同款。若决定复用 `CAResources` 作源根，则必须写清与两个着色器导入器共用扫描根的影响。"
+}

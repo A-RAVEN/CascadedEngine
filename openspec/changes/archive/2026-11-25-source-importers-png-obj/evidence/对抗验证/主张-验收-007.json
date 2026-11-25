@@ -1,0 +1,9 @@
+{
+  "id": "验收-007",
+  "face": "③ 红态与异常可观测性",
+  "severity": "misleading",
+  "claim": "tasks 3.1 把正控（已知 PNG+OBJ）和红态（坏 PNG/坏 OBJ）都写成同一个用例、同一个「临时源目录」；design D5 又要求 Produce 遇坏文件直接抛、不吞。一次 ScanSourceDirectory 里只要目录里有一个坏文件，Produce 就抛/返回空，整批产出都不会注册（ResourceImportingSystem.cpp:69-78），好文件也导不进来；工件没有写「好坏分开两个目录/两次扫描」，实现者为让正控过很可能把坏文件改成跳过——正好违反「不吞异常」。",
+  "location": "openspec/changes/source-importers-png-obj/tasks.md:20；openspec/changes/source-importers-png-obj/design.md:40；GeneralResources/private/ResourceImportingSystem.cpp:69-78",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-007.md",
+  "suggested_fix": "把 3.1 拆成明确阶段：① 好夹具独立源目录 → 一次 Scan → 断言落盘/Parse/registered；② 红夹具独立源目录（每次只放一个坏文件）→ 再次 Scan → 断言异常与「不落盘」；③ 回到好目录再 Scan → 断言重导入替换。每阶段之间清读数/清临时目录，禁止把好坏文件混在同一目录。"
+}

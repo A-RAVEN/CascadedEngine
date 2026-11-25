@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-004",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；openspec/changes/source-importers-png-obj/tasks.md",
+  "anchor": "design.md:36「导入器 NextResource 交出 Texture2D/Mesh（经 Texture2DFactory/MeshFactory 的 Create 入队 + AssetDatabase 出队填数据，沿用 csharp-resource-asset-foundation D4/D5 模式；或直接 new 资产填数据交迭代器，由管线 CreateProxy 注册）」；design.md:24「导入器不调注册表（grep 五写入口 0）」",
+  "problem": "design D4 的首选路径（工厂）缺「谁注册工厂」这一环，工件也没有对应任务。`AssetDatabase.Create` 走门面 `CreateResource(typeName, path)` → `ResourceManagingSystem::CreateResource` 查工厂；全仓 `RegisterFactory` 的调用只在 `Scripting/Managed/ResourceAssetProbe.cs`（`:268`、`:271`、`:274`，另 `:370` 为失败面临时注册），而该探针由 `CASCADED_CSHARP_ASSET_PROBE=1` 门控（`ResourceAssetProbe.cs:56-57`、`Host.cs:334`），默认关。`Texture2DFactory` / `MeshFactory` 本身只是类定义（各 27 行），没有任何注册点。design 又规定导入器不调注册表，所以导入器自己也不能注册工厂。按首选路径实现：门控 `CASCADED_SOURCE_IMPORTERS=1` 打开后，`CreateResource(\"Texture2D\", ...)` 查不到工厂而抛错，② 一个文件都产不出。design 给了第二方案「直接 new 资产填数据交迭代器」（该路径真实可行：`TestCSharpImporter` 已证明 C# 资源经 `CreateProxy` 交管线注册），所以不判 blocking；但工件必须二选一写死，否则执行者按首选路径会踩空。另：`AssetDatabase.Create` 只负责「门面新建 + 从队列取出」，填数据是调用方做的，D4 写「AssetDatabase 出队填数据」也不准确。",
+  "evidence": "见 `证据-存在-004.md`：① `AssetDatabase.cs:32-36` 的 Create 实现与 `AssetDatabase.cs:111/115` 的 Parse 分派；② `ResourceAssetProbe.cs:266-271` 是唯一的工厂注册点，`ResourceAssetProbe.cs:56-57` 门控变量 `CASCADED_CSHARP_ASSET_PROBE`，`Host.cs:334` 只在 Enabled 为真时 Tick；③ `Select-String` 全 `Scripting/Managed` 的 `RegisterFactory` 命中只在该探针；④ `Texture2DFactory.cs` / `MeshFactory.cs` 全文各 27 行，只有类定义与 `Create()/GetResourceType()`；⑤ design D4 原文与 D1「导入器不调注册表」原文。",
+  "suggestion": "在 design/tasks 里二选一写死：① 选「直接 new 资产填数据交迭代器」——删掉「经 Texture2DFactory/MeshFactory + AssetDatabase」的措辞，避免执行者去走工厂；② 选工厂路径——新增一条任务，在门控打开时由 Host（导入器之外）注册 `Texture2DFactory` / `MeshFactory`（照 `ResourceAssetProbe` 的注册方式），并把 2.3 的验收补上「两工厂已注册」前置读数；同时把「AssetDatabase 出队填数据」改成「AssetDatabase.Create 出队，导入器填数据」。"
+}

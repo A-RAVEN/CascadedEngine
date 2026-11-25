@@ -1,0 +1,53 @@
+任务：tasks.md 1.2（OBJ 解析器）
+被测物：Scripting/Managed/Assets/Importers/ObjParser.cs（v 位置 float3 / f 索引 1 基 + 负索引 / n 边面扇形三角化 n-2 / uint32 索引 / 未引用顶点保留 / 位置偏移 0 + 写死白色偏移 12 步长 24，与 Mesh 三常量一致）
+判据实现：Test/GPUBackendTester/Main.cpp 的 TestSourceImporters（独立进程用例）
+
+验收判据（tasks.md 原文）：构建过；含四边面 OBJ（立方体 6 quad→12 三角）解析顶点/索引==写死期望（强制三角化真实现）；坏 OBJ 红态。
+
+一、构建
+  命令：python build.py --config Debug
+  读数（主循环回传）：BUILD SUCCESSFUL（0 错误）
+
+二、正控：立方体 6 个四边面 → 12 个三角，裸字节对拍写死预期
+  夹具 Models/B.obj：8 个立方体顶点 + 1 个**未被任何面引用**的顶点（第 9 个）+ 6 个四边面：
+    f 1 2 3 4 / f 5 8 7 6 / f 1 5 6 2 / f 2 6 7 3 / f 3 7 8 4 / f -9 -5 -2 -6
+  负索引按 OBJ 语义相对**当前**顶点数（此时 9 个）：-9→索引 0、-5→4、-2→7、-6→3，与前面正面同一组角。
+  写死预期：CAMH 头 32（CAMH + version 1 + 顶点数 9 + 索引数 36 + 顶点字节 216 + 索引字节 144）
+    + 顶点（每个 24 字节 = 位置 float3 偏移 0 + 颜色 float3=1,1,1 偏移 12）+ 36 个 uint32 索引
+    = 392 字节；36 个索引的写死序列见 Main.cpp 的 cubeIndices。
+  日志原文（evidence/3.1-TestSourceImporters.txt）：
+
+    [TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、裸字节与写死预期一致、HasResource 真
+
+  判据说明：C++ 读临时根 `Models/B.mesh` 的裸字节与写死预期逐字节比较（不走 Mesh.Parse —— internal 调不到）；
+  三角化/索引基/负索引/未引用顶点保留/默认白色任一错都会在"首个不同字节偏移"处判红。
+  红态旁证（判据确实会红）：evidence/3.1-首次运行红态.txt —— 首版夹具把负索引按 8 个顶点算，
+  解析器按 D3 语义解析成索引 1（9-8），对拍在偏移 368（索引区第 30 个 uint32）处判红
+  「实际 1、期望 0」；改成 `-9 -5 -2 -6` 后逐字节一致。
+
+三、重导入与源变动重建（同一份 ② 序列化字节判据）
+  日志原文：
+
+    [TestSourceImporters ③] 重导入：第二轮新句柄、旧句柄 ReleaseImpl 全 1001、落盘字节仍等于写死预期
+    [TestSourceImporters ④] 源变动重建：改源 PNG/OBJ 后重扫，② 产物重建为新源对应字节（与改前不同）
+
+  - ③ 第二轮 Produce 交出新对象（新借用句柄、保活 1），第一轮旧句柄 `ReleaseImpl == 1001`，落盘字节仍等于写死预期；
+  - ④ 改 Models/B.obj 的未引用顶点位置（2,2,2 → 3,3,3）与 Images/A/Test.png 像素后重扫，
+       `Models/B.mesh` 重建为"新位置 + 同一组 36 索引"的写死预期字节，且与改前字节不同。
+
+四、红态：坏 OBJ 全部走 C# 读数通道点名（管线边界 1012）
+  日志原文（同一份 evidence/3.1-TestSourceImporters.txt）：
+
+    [TestSourceImporters ⑤] 红态 bad-obj-empty：管线边界错误码 1012 + C# 读数点名 AssetFormatException（空网格），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-obj-index：管线边界错误码 1012 + C# 读数点名 AssetFormatException（越界），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-obj-missing：管线边界错误码 1012 + C# 读数点名 AssetFormatException（越界），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-obj-coordinate：管线边界错误码 1012 + C# 读数点名 AssetFormatException（个坐标），临时根字节不变
+
+  夹具（C++ 侧现造）：只有 v 没有 f（空网格）/ f 1 2 4 但只有 3 个顶点（索引越界）/
+  只有 f 1 2 3 没有任何 v（缺顶点引用）/ v 1 2（坐标缺分量）。
+  每条红态都同时断言：临时资源根文件字节前后完全不变（不落盘垃圾资产）。
+
+五、证据指针
+  - 完整运行日志：evidence/3.1-TestSourceImporters.txt
+  - 运行结果：evidence/3.1-绿跑.json（status=pass, exit_code=0）
+  - 判据能红：evidence/3.1-首次运行红态.txt（偏移 368 的实际/期望字节）

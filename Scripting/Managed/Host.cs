@@ -328,6 +328,13 @@ namespace Scripting.Managed
                 // resource-importer-refactor 4.1/4.2：导入器双反向探针（拉取式，C# 实现导入器）。
                 // 默认关（没有 CASCADED_CSHARP_IMPORTER_PROBE=1 时 Tick 立即返回、零行为）。
                 ResourceImporterProbe.Tick(s_api);
+                // source-importers-png-obj 2.3：源导入器（PNG 贴图 / OBJ 网格）的测试驱动接线。
+                // 门控 CASCADED_SOURCE_IMPORTERS=1 时绑三张反向表、造两个导入器的强句柄并写读数；
+                // 默认关（不设时不绑表、不建导入器、不写读数、不落盘：零行为）。
+                if (Environment.GetEnvironmentVariable("CASCADED_SOURCE_IMPORTERS") == "1")
+                {
+                    Assets.Importers.SourceImporterDriver.Tick(s_api);
+                }
                 // csharp-resource-asset-foundation 4.1：资源资产探针（门面注册 / 新建 / 落盘 /
                 // 自读加载 / 替换 / 失败面 / 渲染消费）。默认关（没有 CASCADED_CSHARP_ASSET_PROBE=1 时
                 // Enabled 为假：不绑表、不读阶段、不绑渲染表、零日志、零状态改变）。

@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-014",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md；tasks.md；design.md",
+  "anchor": "spec.md:33「MUST NOT 调注册表（RegisterResource/ReleaseResource/CreateResource/GetOrLoadResource/GetOrNewResource grep 0）」；tasks.md:14/15「五写入口 grep 0」",
+  "claim": "怀疑「五写入口 grep 0」是恒真判据：只要点名的五个符号在仓库里根本不存在，grep 永远 0，判据就抓不到任何东西。实测五个名字在 ResourceManagingSystem.h 里逐个有虚函数声明（第 42/46/51/55/57 行），符号真实存在，判据不是恒真（falsePositive）——但能否被绕过见主张-溯源-015。",
+  "evidence": "证据-溯源-014.md：ResourceManagingSystem.h 五个声明的逐字原文与 Select-String 输出。"
+}

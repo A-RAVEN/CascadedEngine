@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "misleading",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "逐行解析 `v x y z`（位置 float3）、`f a/b/c ...`（面，取顶点索引，忽略 vt/vn 本批不支持），面三角化（扇形拆三角形），uint32 索引。",
+  "problem": "工件没有规定 OBJ 面索引的基数与符号处置：OBJ 的 `f` 索引是 1 基，且允许负数（表示相对当前顶点数）；design/spec 只说「取顶点索引」「索引越界抛」，没说怎么把它变成 `IndexData` 的 0 基 uint32，也没说负索引算合法还是越界。同时「VertexCount 等于写死期望」没规定未被任何面引用的 `v` 顶点算不算（写 `v` 行数与去重后顶点数会给出不同 VertexCount）。结果是 tasks 1.2/3.1 的「写死期望」无法从工件推导：两个实施者会写出不同的期望表，一个 1 基直传、一个减 1，两边都能自称按工件实现。",
+  "evidence": "工件全文检索不到「1 基 / 0 基 / 负数 / 相对索引 / 未引用顶点」任何一条：在 proposal.md、design.md、tasks.md、spec.md 四个文件里 `Select-String -Pattern '1 基|0 基|负数|相对索引|未引用'` 命中 0。design D3 原文只写「f a/b/c ...（面，取顶点索引…）……uint32 索引」；spec 第 19 行只写「f 面三角化 / uint32 索引……缺顶点/索引越界/空网格 MUST 抛 AssetFormatException 点名」；tasks 1.2 只写「解析顶点/索引==写死期望」。Mesh 侧要求是 `IndexData` 每条 4 字节（`Mesh.cs` 第 120-124 行 `expectedIndexLength = indexCount * 4`，uint32 索引）。",
+  "suggestion": "在 design D3 与 spec 写死三条：① `f` 顶点索引按 1 基读入、写进 IndexData 前减 1；② 负数按「当前已解析顶点数 + 负数」转绝对下标，转完 <0 或 >= 顶点数视为越界抛 AssetFormatException；③ VertexCount = 文件里 `v` 行数（未被面引用的顶点保留，不重排、不去重），三角化顺序 = 面的出现顺序 + 扇形顺序。tasks 1.2 的写死期望按这三条列出具体数字（8 顶点立方体：VertexCount=8、三角 12 个、IndexCount=36、首三个索引 0,1,2 之类）。"
+}

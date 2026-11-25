@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-015",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md；specs/source-importers-png-obj/spec.md；tasks.md",
+  "anchor": "design.md:36「经 Texture2DFactory/MeshFactory 的 Create 入队 + AssetDatabase 出队填数据，沿用 csharp-resource-asset-foundation D4/D5 模式」；spec.md:33「MUST NOT 调注册表…注册/落盘/重导入替换 MUST 由管线做」",
+  "claim": "design D4 把 AssetDatabase 列为导入器填数据的正规路径，但 AssetDatabase.Create 第 34 行就是 m_registry.CreateResource、Load 第 57 行是 m_registry.ReleaseResource、SaveAll 第 41 行是 m_registry.SerializeAll——导器一旦走这条路，行为上已经在直接写注册表/落盘，而「grep 导入器文件五写入口 0」照样通过。规范「注册/落盘 MUST 由管线做」被这条自证的词面判据架空，且管线随后还会对 NextResource 再注册一次（双注册/替换），行为与规范冲突。",
+  "evidence": "证据-溯源-015.md：AssetDatabase.cs:31-42/49-62 原文；ResourceImportingSystem.cpp:77-96 管线注册与落盘；ResourceAssetProbe 里 AssetDatabase 的既有用法。"
+}

@@ -1,0 +1,45 @@
+任务：tasks.md 1.1（PNG 解码器）
+被测物：Scripting/Managed/Assets/Importers/PngDecoder.cs（纯 C#：全部 IDAT 拼一条 zlib 流 + DeflateStream raw deflate 跳 2 字节头 + adler32 尾校验 + 逐块 CRC32 + 五种滤波重建 + RGB 补 alpha=255；0/3/4 颜色类型、16 位、Adam7 明拒）
+判据实现：Test/GPUBackendTester/Main.cpp 的 TestSourceImporters（独立进程用例）
+
+验收判据（tasks.md 原文）：构建过；stbi_write_force_png_filter=0..4 五张夹具逐张解码像素==写死期望（五滤波各覆盖）；坏 PNG（错签名/截断/CRC 错/adler32 错/不支持类型）抛 AssetFormatException。
+
+一、构建
+  命令：python build.py --config Debug
+  读数（主循环回传）：BUILD SUCCESSFUL（0 错误）
+
+二、正控：五滤波 + 多 IDAT + RGB，裸字节对拍写死预期
+  夹具：Images/A/Test.png（filter=0，IDAT 被拆成 3 块）、Test1.png..Test4.png（filter=1..4）、Rgb.png（颜色类型 2，4×4）
+  写死预期：CATX 头 28（CATX + version 1 + 宽 4 + 高 4 + 格式 6 + 像素长 64）+ RGBA8 像素 64 = 92 字节；RGB 源补 alpha=255
+  日志原文（evidence/3.1-TestSourceImporters.txt）：
+
+    [TestSourceImporters ①] 门控开 CASCADED_SOURCE_IMPORTERS=1；源根（CASCADED_SOURCE_IMPORTERS_DIR）=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/source；临时资源根=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/root；读数文件=C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/readings.txt
+    [TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、裸字节与写死预期一致、HasResource 真
+
+  判据说明：6 张 .tex 逐张与写死 CATX 字节比较（C++ 读 ② 文件裸字节，不走 Texture2D.Parse）；滤波重建、alpha 补齐、多 IDAT 拼接任一错都会在"首个不同字节偏移"处判红。
+
+三、红态：坏 PNG 全部走 C# 读数通道点名（管线边界 1012，C++ 直接 catch 不到 AssetFormatException）
+  日志原文（同一份 evidence/3.1-TestSourceImporters.txt，逐条 1012 + AssetFormatException + 临时根字节不变）：
+
+    [TestSourceImporters ⑤] 红态 bad-png-signature：管线边界错误码 1012 + C# 读数点名 AssetFormatException（签名），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-truncated：管线边界错误码 1012 + C# 读数点名 AssetFormatException（截断），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-crc：管线边界错误码 1012 + C# 读数点名 AssetFormatException（CRC32），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-adler：管线边界错误码 1012 + C# 读数点名 AssetFormatException（adler32），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-gray：管线边界错误码 1012 + C# 读数点名 AssetFormatException（灰度），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-gray-alpha：管线边界错误码 1012 + C# 读数点名 AssetFormatException（灰度 + alpha），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-palette：管线边界错误码 1012 + C# 读数点名 AssetFormatException（调色板），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-16bit：管线边界错误码 1012 + C# 读数点名 AssetFormatException（位深），临时根字节不变
+    [TestSourceImporters ⑤] 红态 bad-png-interlaced：管线边界错误码 1012 + C# 读数点名 AssetFormatException（Adam7），临时根字节不变
+
+  夹具构造（C++ 侧现造，不走被测物）：
+    - 错签名：合法 Test.png 第 2 个字节异或 0xFF
+    - 截断：合法 Test.png 去掉末尾 20 字节（IDAT 块声明长度 > 剩余，必报"块 IDAT 被截断"）
+    - CRC 错：Test1.png 的 IDAT 数据中段改一个字节、**不修 CRC**（解码器必须在 inflate 之前用 CRC32 拒）
+    - adler32 错：Test1.png 的 zlib 流最后一个字节（adler32 最低字节）异或 0xFF 并**重算该块 CRC**（只有 adler32 判据能拒它）
+    - 不支持类型：手写 IHDR+IEND（CRC 正确）—— 灰度(0)/灰度+alpha(4)/调色板(3)/16 位/Adam7 隔行
+  每条红态都同时断言：临时资源根文件字节前后完全不变（不落盘垃圾资产）。
+
+四、证据指针
+  - 完整运行日志：evidence/3.1-TestSourceImporters.txt（含 ① 正控与全部 ⑤ 红态行）
+  - 运行结果：evidence/3.1-绿跑.json（{"name":"TestSourceImporters","status":"pass","duration_ms":2981,"exit_code":0}）
+  - 判据能红的旁证：evidence/3.1-首次运行红态.txt（OBJ 字节对拍红）、evidence/3.1-第二次运行崩溃.txt（编辑器空着色器库断点）

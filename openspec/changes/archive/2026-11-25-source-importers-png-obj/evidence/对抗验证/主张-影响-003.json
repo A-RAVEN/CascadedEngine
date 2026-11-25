@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-影响-003",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md D4；openspec/changes/source-importers-png-obj/proposal.md What Changes；openspec/changes/source-importers-png-obj/specs/source-importers-png-obj/spec.md「导入器 MUST NOT 调注册表…grep 0」；tasks.md 2.1/2.2；Scripting/Managed/Assets/AssetDatabase.cs；Scripting/Managed/ResourceAssetProbe.cs；GeneralResources/private/ResourceImportingSystem.cpp；Scripting/Managed/Host.cs",
+  "anchor": "design.md D4「经 Texture2DFactory/MeshFactory 的 Create 入队 + AssetDatabase 出队填数据」；proposal.md「复用 Texture2DFactory/AssetDatabase」；spec.md「MUST NOT 调注册表（RegisterResource/ReleaseResource/CreateResource/GetOrLoadResource/GetOrNewResource grep 0）」",
+  "problem": "「五写入口 grep 0」只查导入器文件里的字面量，工件自己点名的路线可以让导入器实际调注册表而判据仍绿：AssetDatabase.Create 的第一句就是 m_registry.CreateResource(typeName, path)，即 PNG/OBJ 若按 D4 的「AssetDatabase」走，Produce 期间资源已经被注册表门面注册一次（随后管线又 ReleaseResource + RegisterResource 一次）；而 grep 导入器文件仍然 0，因为调用发生在 AssetDatabase.cs。这条路在净进程里还走不通：CreateResource 找不到工厂就抛「未注册的资源工厂类型」，Texture2DFactory / MeshFactory 只在 CASCADED_CSHARP_ASSET_PROBE=1 的 ResourceAssetProbe.RegisterFactories 里注册；要用 IResourceRegistry 另两条路是 ResourceAssetProbe 自绑或 EnsureEditorResourceFacade，而后者在 CASCADED_EDITOR≠1 时直接返回 null。于是「grep 0」既拦不住间接注册，也不暴露工厂与门面的前置缺失。",
+  "evidence": "见 `证据-影响-003.md`：① AssetDatabase.Create 逐字引文（m_registry.CreateResource）；② 五写入口在 AssetDatabase.cs 的命中（CreateResource 第 34 行、ReleaseResource 第 57 行，其余是注释）；③ CreateResource 无工厂即抛（ResourceImportingSystem.cpp 第 291 行）；④ 工厂只在 ResourceAssetProbe.RegisterFactories 注册（第 267–271 行）、该探针默认关；⑤ EnsureEditorResourceFacade 在 CASCADED_EDITOR≠1 时返回 null。",
+  "suggestion": "design D4 二选一写死并同步 spec：走 AssetDatabase 就把 MUST NOT 改成「导入器文件不得直接调五写入口；经 AssetDatabase 的注册由管线替换」，并把工厂注册与门面绑定列进任务；走「直接 new 资产」就删掉「经工厂/AssetDatabase」措辞。验收从 grep 改成行为判据：扫描前 HasResource(路径)=false、Produce 返回后仍 false，直到管线 RegisterResource 才为 true。"
+}

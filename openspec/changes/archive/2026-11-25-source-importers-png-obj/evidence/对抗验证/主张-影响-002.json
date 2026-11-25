@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-影响-002",
+  "face": "影响面与静默降级",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md D4/D6；openspec/changes/source-importers-png-obj/tasks.md 3.1；GeneralResources/private/ResourceImportingSystem.cpp；VulkanRenderBackendNew/private/ShaderLibrary/ShaderImporter_Vulkan.cpp；D3D12RenderBackend/private/ShaderLibrary/ShaderImporter_D12.cpp；Test/GPUBackendTester/Main.cpp",
+  "anchor": "design.md D6「预置已知 PNG / 已知 OBJ 到临时源目录 → 触发导入」与 D4「② 文件落 CAAssets/Textures/*.tex」；tasks.md 3.1「预置…到临时源目录→门控开触发导入→断言 ② 落盘存在」",
+  "problem": "触发导入只有 ScanSourceDirectory 一条路，而它按顺序对**所有**已注册导入器调 Produce()，末尾无条件 SerializeAll() 把注册表里全部资源按「资源根 / 注册键」写盘（GetDestDirectory 只写进 SetScanDirectories，不参与写盘）。由此有两个波及：(a) 若按 3.1 用临时 PNG/OBJ 夹具目录当扫描根，着色器导入器拿到的是一个存在但没有 .slang 的根，它不报错，仍返回一条「空 ShaderLibrary」产出，管线先 ReleaseResource 再 RegisterResource，SerializeAll 随即把真实的 CAAssets/<后端>ShaderLibrary.shLib 覆盖成空库；(b) 资源根默认是仓库根/CAAssets（tester main 在 SetResourceRootPath(ctx.assetPath) 后立刻 ScanSourceDirectory），3.1 没有「临时资源根 + 收尾清理」要求（对照 TestCSharpAssets 把 root 指到 %TEMP% 并在 guard 里删），新 .tex / .mesh 会直接落进用户 CAAssets（现只有两 shLib + 三个 CSharpProbe .res），而工件只写了「不动用户真实源」。另外 D4 把落盘位置归给 GetDestDirectory（CAAssets/Textures）与实现不符：写盘路径只由资源根和 NextPath 决定。",
+  "evidence": "见 `证据-影响-002.md`：① ScanSourceDirectory 对所有导入器循环 Produce + 末尾 SerializeAll（SerializeAll 用 m_AssetRootPath / key.Get()）；② GetDestDirectory 只进 SetScanDirectories；③ 两个着色器导入器在「根存在但无 .slang」时仍返回单条空库产出（Vulkan/D3D12 逐字引文）；④ Main.cpp 的 ctx.assetPath=仓库根/CAAssets 与启动扫描调用；⑤ CAAssets 实测 5 个文件；⑥ TestCSharpAssets 的临时 root + guard 先例；⑦ 全量 run-all 22 条硬编码、3.1 未写「不进全量」。",
+  "suggestion": "tasks 3.1 补两条：① 用例把资源根改到 %TEMP% 独立目录并收尾清理（照 TestCSharpAssets 的 root + guard）；② 触发扫描时用 ctx.resourcePath 当扫描根（C# 导入器仍用 CASCADED_SOURCE_IMPORTERS_DIR 指向临时源目录），并断言仓库 CAAssets 五个既有文件哈希不变，或明确写「新用例只进 --list、不进全量同进程顺序跑」。design D4 把落盘位置改写为「资源根 + NextPath」，GetDestDirectory 不再作为写盘依据。"
+}

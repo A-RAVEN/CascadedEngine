@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-一致-011",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "artifact": "openspec/changes/source-importers-png-obj/design.md",
+  "anchor": "门控 `CASCADED_SOURCE_IMPORTERS=1`（默认关，Host.Tick 里 EnsureBound 后调；零行为不影响现有用例）。",
+  "problem": "门控被放在托管 Host.Tick，但「导入」这件事只能由 C++ 管线 `ResourceImportingSystem::ScanSourceDirectory` 触发，而托管侧没有 AddImporter / ScanSourceDirectory 的任何入口（grep 均 0）。整机唯一一次启动扫描在 `Main.cpp` 第 10588 行，早于任何托管 Tick（Tick 调用点全在测试函数体内或收尾的保持窗口循环，测试从第 10708 行才开始跑）。既有先例 `TestCSharpImporter` 是 C++ 测试自己 `ResolveImpl → AddImporter → ScanSourceDirectory`（Main.cpp 第 8881–8887 行）。因此按 design 把门控放 Host.Tick：门控打开也不会发生任何导入。而 proposal 的 Non-goals 写「本批门控触发导入」，tasks 2.3 也把「管线拉取注册落盘」当成门控接入的成果 —— 三处说法互相对不上，且没有任何一条任务负责补 C++ 侧接线（Main.cpp 只在 3.1 里作为测试用例出现）。",
+  "evidence": "`Scripting/` 内 `ScanSourceDirectory` 命中 0、`AddImporter` 命中 0。`Test/GPUBackendTester/Main.cpp` 第 10588 行 `ctx.pImportingSystem->ScanSourceDirectory(ctx.resourcePath);`；第 10617 行 `auto runTestWithDiagnostics = [&](const char* name, auto testFunc)`，第 10708 行才开始 `runTestWithDiagnostics(\"TestSimpleTriangle\", TestSimpleTriangle);`；第 8881–8887 行先例 `ctx.pImportingSystem->AddImporter(csharpImporter);` / `AddImporter(&s_contrastImporter);` / `ScanSourceDirectory(ctx.resourcePath);`。`CSharpHost/README.md` 第 379–380 行：「// 注册（C++ 侧）：强句柄 + ResolveImpl 借用指针 → ResourceImportingSystem::AddImporter / ulong handle = ResourceImporterBindings.Create(new MyImporter());」。`GeneralResources/header/CAResource/ResourceImporter.h` 第 20–28 行说明 C# 反向实现读不到扫描根、必须自己声明；但这不改变「扫描由原生侧发起」这一事实。proposal 第 37 行「本批门控触发导入」；tasks 第 16 行「门控接入 Host.cs（EnsureBound 后调两导入器 Tick……）+ 管线 ScanSourceDirectory 拉取注册落盘」。",
+  "suggestion": "两条路二选一，并写进 tasks：① 明确本批由**测试**驱动（像 `TestCSharpImporter` 一样）：C++ 侧在 `TestSourceImporters` 里 `AddImporter` 两个 C# 导入器并调 `ScanSourceDirectory`，门控只用于让 C# 侧准备好导入器对象；proposal 删掉「门控触发导入」，spec 的门控场景改成「门控开时测试可驱动导入」。② 若坚持产品级门控触发导入：新增 C++ 接线任务——在启动扫描（Main.cpp:10588）之前按门控创建/取到两个 C# 导入器并 `AddImporter`，且加一条「门控关闭时未 AddImporter、启动扫描零新产出」的断言。"
+}

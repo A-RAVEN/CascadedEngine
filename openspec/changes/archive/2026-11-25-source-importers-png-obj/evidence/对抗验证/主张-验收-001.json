@@ -1,0 +1,9 @@
+{
+  "id": "验收-001",
+  "face": "① PNG 像素逐字断言",
+  "severity": "Blocking",
+  "claim": "「五种滤波各覆盖一例」在工件里没有夹具来源、逐行滤波类型或逐例期望像素：design 只写「已知夹具写死像素期望核 + 五种滤波各覆盖」，tasks 只写「五种滤波各覆盖一例」。现有两张 PNG（test.png / vulkanlogo.png）实测出现的滤波类型只有 0/1/2/4，缺 Average(3)；stbi_write_png 默认逐行从 0..4 里挑熵最小的一种，不保证覆盖 Average。因此只实现 None（滤波 0）并把数据原样拷出的解码器可以让像素断言全绿——「解码错一个滤波就红」目前不成立，除非夹具被强制成五种滤波并有读数证明。",
+  "location": "openspec/changes/source-importers-png-obj/design.md:51；openspec/changes/source-importers-png-obj/tasks.md:9、20",
+  "evidence_ref": "openspec/changes/source-importers-png-obj/evidence/对抗验证/证据-验收-001.md",
+  "suggested_fix": "在 tasks 1.1/3.1 写死五个 PNG 夹具与逐行期望：用 stbi_write_force_png_filter=0..4 各生成一张（Tester 已链接 stb_image_write，可直接写该全局），或在 Tester 里解析五张 PNG 的 IDAT 并断言滤波字节集合等于 {0,1,2,3,4}；每张的 RGBA 期望在 C++ 侧写死，再逐字节比对 .tex 载荷。把「覆盖五种」从形容词变成少一种就红的断言。"
+}

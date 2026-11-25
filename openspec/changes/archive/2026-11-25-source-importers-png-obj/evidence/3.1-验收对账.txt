@@ -1,0 +1,47 @@
+任务：tasks.md 3.1（tester 用例 TestSourceImporters）
+被测物：Test/GPUBackendTester/Main.cpp 的 `TestSourceImporters`（独立进程用例，第 25 项）
+
+验收判据（tasks.md 原文）：--list 含 TestSourceImporters、全量仍 22；独立进程过；红态各能红
+（evidence/3.1-*.txt 含开关+命令+失败码）。
+
+一、命令与结果
+  命令：out\build\x64-debug\bin\GPUBackendTester.exe --test TestSourceImporters --backend vulkan
+        （交互前台：本用例要起编辑器 + 抓 WebView2 画面，不能用 --headless）
+  结果（evidence/3.1-绿跑.json）：
+    [{"name":"TestSourceImporters","status":"pass","duration_ms":2981,"exit_code":0}]
+
+二、--list 与全量条数
+  --list：25 行，含 `TestSourceImporters`（out\build\x64-debug\bin\GPUBackendTester.exe --list）。
+  全量同进程顺序跑：仍 22 条（Main.cpp run-all 段未加本用例；它只走 --test 单跑分发）。
+  理由：编辑器服务是进程级一次性状态机（TestEditorAssetBrowser 先例）+ 本用例换资源根 / 改注册表。
+
+三、断言覆盖与读数（日志原文见 evidence/3.1-TestSourceImporters.txt）
+  ⓪ 门控关零行为：
+    [TestSourceImporters ⓪] 门控关零行为：读数无活动、临时根无新文件（CASCADED_SOURCE_IMPORTERS 未设；临时资源根 C:/Users/76956/AppData/Local/Temp/CascadedSourceImporters_vulkan/root）
+  ① 正控（裸字节对拍 + HasResource）：
+    [TestSourceImporters ①] 五滤波 + RGB + 四边面 OBJ：6 张 tex 与 1 个 mesh 的镜像路径落盘、裸字节与写死预期一致、HasResource 真
+  ② 资产浏览器 list-assets（写死 path/kind/registered/sizeBytes）：
+    [TestSourceImporters ②] 资产浏览器 list-assets：6 条 texture + 1 条 mesh 的 path/kind/registered/sizeBytes 全对
+    编辑器读数（evidence/3.1-编辑器读数.txt）：
+      [编辑器 读数] probe=editor tick=53 state=running mode=main-thread port=18394 clients=3 objects=1 ... controller=1 nav=1 navHttp=200 dockController=1 dockNav=1 dockNavHttp=200 ... lastCmd=list-assets error=-
+      cmdCalls=9 = 1 次 GetResourceRootPath + 8 个文件各一次 HasResource（6 tex + 1 mesh + 1 shLib）
+  ③ 重导入（新对象 + 旧句柄 1001 + 字节仍等于预期）：
+    [TestSourceImporters ③] 重导入：第二轮新句柄、旧句柄 ReleaseImpl 全 1001、落盘字节仍等于写死预期
+  ④ 源变动重建（改源重扫 → ② 产物重建为新源字节，与改前不同）：
+    [TestSourceImporters ④] 源变动重建：改源 PNG/OBJ 后重扫，② 产物重建为新源对应字节（与改前不同）
+  ⑤ 红态 13 例（开关 + 失败码 1012 + C# 读数点名 + 临时根字节不变）：见 evidence/1.1-PNG解码与红态对账.txt
+    与 evidence/1.2-OBJ解析与红态对账.txt 的原文行；完整 13 行在同一份运行日志里。
+  ⑥ 真实 CAAssets 字节不变（快照逐字节比较通过才有末行）：
+    TestSourceImporters 通过：门控关零行为 → 门控开测试驱动接入（C# 句柄 → ResolveImpl → AddImporter → ScanSourceDirectory）→ 五滤波 + 多 IDAT + RGB + 四边面 OBJ 的镜像路径落盘与裸字节对拍 → 资产浏览器 list-assets 条目 → 重导入新对象（旧句柄 1001）→ 源变动重建 → 13 个红态读数点名 → 真实 CAAssets 字节不变
+
+四、抓窗钩子（3.2 的 test 侧支撑，不设时零行为）
+  `CASCADED_SOURCE_IMPORTERS_CAPTURE=<png 路径>` 设了时，用例把它映射到编辑器既有的
+  `CASCADED_EDITOR_SELFTEST=capture-dock=<png>`：dock 就绪后每 30 帧 CapturePreviewAsync 覆盖落盘；
+  list-assets 断言之后再推 ~3 秒帧让 dock 画出条目，并断言 PNG 非空（E_SRCIMPORT_CAPTURE）。
+  不置前、不最小化、不移动用户窗口。
+
+五、判据能红的旁证
+  - evidence/3.1-首次运行红态.txt：OBJ 负索引夹具期望错，裸字节对拍在偏移 368 判红（实际 1 / 期望 0）
+  - evidence/3.1-第二次运行崩溃.txt：临时源根无着色器 → 注册表里是空 ShaderLibrary → 编辑器
+    scene view 查 `Shaders/Test/TestSimpleTriangle` 命中 `CA_LOG_ERR_BREAK` 的 __debugbreak（0x80000003）；
+    修复 = 起编辑器前把启动扫描抓住的真实库对象装回注册表（Main.cpp 的 ①b 段）
