@@ -46,18 +46,15 @@
       #asset-summary { color: var(--muted); }
       #asset-table {
         width: 100%;
-        /* 底部通栏宽 = 客户区宽：固定列宽 + 断词，五列都留在 dock 内（长路径不撑出横向滚动）。 */
+        /* 底部通栏宽 = 客户区宽：固定列宽 + 断词，两列都留在 dock 内（长路径不撑出横向滚动）。 */
         table-layout: fixed;
         border-collapse: collapse;
         font-family: Consolas, "Cascadia Mono", monospace;
         font-size: 11px;
         line-height: 1.3;
       }
-      #asset-table col.col-path { width: 34%; }
-      #asset-table col.col-kind { width: 16%; }
-      #asset-table col.col-size { width: 12%; }
-      #asset-table col.col-time { width: 24%; }
-      #asset-table col.col-registered { width: 14%; }
+      #asset-table col.col-path { width: 74%; }
+      #asset-table col.col-kind { width: 26%; }
       #asset-table th, #asset-table td {
         text-align: left;
         padding: 2px 4px;
@@ -67,8 +64,9 @@
         word-break: break-all;
       }
       #asset-table th { color: var(--muted); font-weight: 600; }
-      #asset-table td.registered-true { color: var(--ok); }
-      #asset-table td.registered-false { color: var(--muted); }
+      /* editor-code-source-display：源条目与标记条目按 kind 区分着色（路径基准见单元 title）。 */
+      #asset-table tr.source-row td.source-path { color: var(--accent); }
+      #asset-table td.source-marker { color: var(--warn); }
       #asset-empty { color: var(--muted); margin: 2px 0; }
       #asset-error {
         background: #3a1d1d;
@@ -83,7 +81,7 @@
   </head>
   <body>
     <!-- 资产浏览器（底部通栏独立 dock，editor-asset-browser 3.1）：由第二个 WebView2 控制器加载，
-         与右侧对象检查器分离。只读：列出资源根下的编辑器资产文件（未注册的也列，registered=false）。 -->
+         与右侧对象检查器分离。只读：列出资产根下的编辑器资产与显示提供者产出的源条目（条目只有 path+kind）。 -->
     <div class="row">
       <h1>资产浏览器</h1>
       <span>连接状态：</span>
@@ -98,17 +96,11 @@
       <colgroup>
         <col class="col-path" />
         <col class="col-kind" />
-        <col class="col-size" />
-        <col class="col-time" />
-        <col class="col-registered" />
       </colgroup>
       <thead>
         <tr>
           <th scope="col">路径</th>
           <th scope="col">种类</th>
-          <th scope="col">大小</th>
-          <th scope="col">修改时间</th>
-          <th scope="col">已注册</th>
         </tr>
       </thead>
       <tbody id="asset-rows"></tbody>

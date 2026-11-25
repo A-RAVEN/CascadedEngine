@@ -14,8 +14,10 @@
   ③ 接口编号表：README 每一行的编号与接口**完整限定名** == 生成头的 `kBindingInterfaceId*`
      常量（编号唯一来源是接口头上的 `CA_BIND(编号)` 标注），且行数 == 生成 `EngineApi` 里
      下发的 `*_interface_id` 字段数、也 == 生成 `EngineApi.Bindings.cs` 的编号常量数；
-  ④ 探针开关：`Host.cs` / `UserScript.cs` 里读的环境变量（`CASCADED_*`）每一个都在 README 的
-     环境变量表里出现。
+  ④ 探针开关：`Host.cs` / `UserScript.cs` / **编辑器侧 C#**（`EditorService.cs`、`AssetDisplay.cs`、
+      `DisplayProviders/*.cs`）里读的环境变量（`CASCADED_*`）每一个都在 README 的环境变量表里出现。
+      （editor-code-source-display 2.3 起编辑器侧也纳入：`CASCADED_EDITOR_PROJECT_ROOT` /
+      `CASCADED_EDITOR_SOURCE_DISPLAY` 这类只被 EditorService 读到的开关不再靠人肉同步。）
 
 退出码：
   0 = 三样全部对上
@@ -48,6 +50,8 @@ REPO = find_repo_root(HERE)
 README = REPO / "CSharpHost" / "README.md"
 HOST_CS = REPO / "Scripting" / "Managed" / "Host.cs"
 USER_SCRIPT_CS = REPO / "Scripting" / "Managed" / "UserScript.cs"
+# editor-code-source-display 2.3：编辑器侧读到的开关（工程根 / 源显示开关 / 编辑器配置）也纳入 ④ 的守卫。
+EDITOR_DIR = REPO / "Scripting" / "Managed" / "Editor"
 # 真值来源（本 change 起是生成产物，不是手写物）：默认 Debug 预设的绑定目录。
 DEFAULT_PRODUCT_DIR = REPO / "out" / "build" / "x64-debug" / "codegen" / "bindings"
 
@@ -141,6 +145,15 @@ def parse_env_names(text: str) -> set[str]:
     return set(re.findall(r'GetEnvironmentVariable\("(CASCADED_[A-Z0-9_]+)"', text))
 
 
+def editor_env_sources() -> list[Path]:
+    """编辑器侧读环境变量的 C# 文件（EditorService.cs / AssetDisplay.cs / DisplayProviders/*.cs）。"""
+    files = [EDITOR_DIR / "EditorService.cs", EDITOR_DIR / "AssetDisplay.cs"]
+    providers = EDITOR_DIR / "DisplayProviders"
+    if providers.is_dir():
+        files.extend(sorted(providers.glob("*.cs")))
+    return files
+
+
 def scan_readme_readings(text: str, version: int, size: int) -> list[str]:
     """逐行扫描 README 全文的版本 / 字节数读数，返回不符项（带行号与原文）。
 
@@ -215,6 +228,10 @@ def main() -> int:
         api_fields = parse_generated_engine_api_id_fields(header_text)
         cs_numbers = parse_generated_cs_numbers(read(cs_path))
         used_env = parse_env_names(read(HOST_CS)) | parse_env_names(read(USER_SCRIPT_CS))
+        # editor-code-source-display 2.3：编辑器侧（EditorService / AssetDisplay / DisplayProviders）也扫，
+        # 只被 EditorService 读到的 CASCADED_EDITOR_PROJECT_ROOT / CASCADED_EDITOR_SOURCE_DISPLAY 才有守卫。
+        for editor_source in editor_env_sources():
+            used_env |= parse_env_names(read(editor_source))
     except JudgeFailure as exc:
         print(f"判据自身失效：{exc}", file=sys.stderr)
         return 2

@@ -1,0 +1,9 @@
+{
+  "id": "验收-015",
+  "face": "⑥截图视觉",
+  "severity": "misleading",
+  "claim": "3.2 写「交互打开资产浏览器（临时工程根含 shLib+.slang+注册 C#+.cs）」，但没点名把浏览器资源根指到临时根的开关，也没写夹具谁预置：资源根覆盖开关是 CASCADED_EDITOR_ASSET_ROOT，且它在 ScanSourceDirectory 之后才生效（代码注释明说「必须放在 ScanSourceDirectory 之后：导入器会把着色器库写进资源根，先覆盖的话空的临时目录会被写入 shLib 就不再是空根」），所以临时根不会自动得到 shLib；源根又靠「资源根的上级约定」或 CASCADED_EDITOR_PROJECT_ROOT 解析。照字面执行时，执行者直接打开默认根（真实 CAAssets + 真实源根）也能声称「看到源文件、没有程序集行」，夹具与工件写的「临时工程根」不是同一条，截图无法复核。",
+  "location": "tasks.md 3.2「交互打开资产浏览器（临时工程根含 shLib+.slang+注册 C#+.cs），CapturePreviewAsync 抓窗（不前置，AGENTS §2）+ read_image 核对…」；Test/GPUBackendTester/Main.cpp「editor-asset-browser 3.2⑦：交互式视觉验收的**空根构造路径** —— 资源根可用环境变量覆盖（默认仍是仓库根/CAAssets…）。必须放在 ScanSourceDirectory **之后**…」与「const char* assetRootOverride = std::getenv(\"CASCADED_EDITOR_ASSET_ROOT\");」；design.md D4「工程根取资源根的上级约定或 env CASCADED_EDITOR_PROJECT_ROOT（测试传临时工程根隔离）」；CSharpHost/README.md「CASCADED_EDITOR_ASSET_ROOT | 覆盖资产浏览器的资源根（只影响资产浏览；导入器仍按默认根扫描）」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-015.md",
+  "suggested_fix": "把 3.2 写成可复制的命令与环境清单：① 临时根目录结构（<temp>/CAAssets/ShaderLibraries/X.shLib 字节数、<temp>/CAResources/Shaders/A.slang 字节数、<temp>/Scripting/B.cs 字节数）；② 启动 env 全列：CASCADED_EDITOR=1、CASCADED_EDITOR_ASSET_ROOT=<temp>/CAAssets、CASCADED_EDITOR_PROJECT_ROOT=<temp>、CASCADED_EDITOR_SELFTEST=capture-dock=<png>；③ 期望摘要条数与期望可见行（写死）；④ 抓不到/条数不符/行不符各自判不通过。禁止只写「临时工程根含…」而不给开关与预置步骤。"
+}

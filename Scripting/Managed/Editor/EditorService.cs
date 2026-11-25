@@ -235,6 +235,19 @@ namespace Scripting.Managed.Editor
                 Disable("配置非法：" + configError);
                 return;
             }
+            // editor-code-source-display D1：源显示的**生产注册点**（钉死真实 shLib 路径 + 注册 C# 显示资源）。
+            // 门控 `CASCADED_EDITOR_SOURCE_DISPLAY` 默认 on；off 时这里什么都不注册（程序集落默认提供者仍显）。
+            if (EditorSourceDisplay.EnsureRegistered())
+            {
+                Host.LogFromEditor("[编辑器] 源显示已注册：(shader-library, " +
+                                   EditorSourceDisplay.VulkanShaderLibraryPath + ") / (shader-library, " +
+                                   EditorSourceDisplay.D3D12ShaderLibraryPath + ") / (csharp-script, " +
+                                   EditorSourceDisplay.CSharpAssemblyPath + ")");
+            }
+            else
+            {
+                Host.LogFromEditor("[编辑器] 源显示关闭（CASCADED_EDITOR_SOURCE_DISPLAY=off）：代码型程序集落默认提供者仍显");
+            }
             s_dataFolder = Environment.GetEnvironmentVariable("CASCADED_EDITOR_WEBVIEW2_DATA");
             if (string.IsNullOrEmpty(s_dataFolder))
             {
@@ -1008,11 +1021,11 @@ namespace Scripting.Managed.Editor
         // ------------------------------------------------------------------------------------
 
         /// <summary>
-        /// `list-assets`：门面取根 → 递归枚举 → 逐文件 FileInfo + 扩展名种类 + HasResource → 默认
-        /// 提供者成条目 → 与上次快照比对广播 → 回结果。**全部在主线程命令执行内**；每个门面调用之后
-        /// `NoteNativeCall()`（计入本命令的 s_cmdCalls，供线程边界运行期归因）。
+        /// `list-assets`：门面取根 → 递归枚举 → 逐文件扩展名定种类 → 提供者成 {path, kind} 条目 →
+        /// 与上次快照比对广播 → 回结果。**全部在主线程命令执行内**；门面调用之后 `NoteNativeCall()`
+        ///（计入本命令的 s_cmdCalls，供线程边界运行期归因）。
         ///
-        /// 异常面（design D3）：门面未绑 / 根空串 / 目录不存在 / 枚举与 FileInfo 的 IO 错误 /
+        /// 异常面（design D3）：门面未绑 / 根空串 / 目录不存在 / 枚举 IO 错误 /
         /// IResourceRegistryException（门面已绑但底层抛，如注册表缺失 1014）/ ArgumentException（非法
         /// 字符）一律在本方法内转 `E_ASSET_ROOT` 回该 requestId —— **绝不让它穿到 Host.Tick 的外层
         /// catch**（那会把异常吞成 s_lastError，客户端收不到 result 而静默挂起）。
@@ -1070,8 +1083,17 @@ namespace Scripting.Managed.Editor
         }
 
         /// <summary>
-        /// 枚举资产根。成功返回条目列表（可能为空数组 = 合法空态）；失败返回 null 并给原因文本
+        /// 枚举资产根（editor-asset-browser 2.3 / editor-code-source-display D6）：① 资产根文件逐条
+        /// `Resolve(kind, relative)`（精确 (kind,path) → 种类默认 → 默认提供者）；② 注册显示资源（C# 的 dll
+        /// 在 bin/，不靠资产根枚举到）逐条引入；③ 按 path 去重（两个 shLib 的源路径重叠、同路径多来源）；
+        /// ④ 按 path 序数排序。成功返回条目列表（可能为空数组 = 合法空态）；失败返回 null 并给原因文本
         ///（原因由调用方转 `E_ASSET_ROOT`，这里不抛协议错误）。
+        ///
+        /// 条目只有 `path` + `kind` 两个字段（2026-11-25 用户裁定）：这里**不为显示算任何固定元数据**
+        ///（不算文件大小/时间、不查注册状态）；源显示的 IO 是例外但它只填提供者投影需要的输入 ——
+        /// 读 shLib 字节提源路径、扫 Scripting 手写 `*.cs`、逐源路径查存在性，填 `AssetContext.SourceFiles`。
+        /// 门控 `CASCADED_EDITOR_SOURCE_DISPLAY` 每次枚举重读：off 时一律走默认提供者、注册显示资源不引入
+        ///（红态「未注册落默认」可在同一进程里翻开关观察）。
         /// </summary>
         private static List<AssetEntry> EnumerateAssets(out string errorMessage)
         {
@@ -1096,6 +1118,19 @@ namespace Scripting.Managed.Editor
                 errorMessage = "资产根不可用：目录不存在（\"" + root + "\"）";
                 return null;
             }
+
+            // 源显示门控（每次枚举重读；启动时已注册过，这里再调一次覆盖「启动时 off、之后翻回 on」）。
+            bool sourceDisplayEnabled = EditorSourceDisplay.Enabled;
+            string projectRoot = string.Empty;
+            if (sourceDisplayEnabled)
+            {
+                EditorSourceDisplay.EnsureRegistered();
+                if (!TryResolveProjectRoot(root, out projectRoot, out errorMessage))
+                {
+                    return null;
+                }
+            }
+
             var entries = new List<AssetEntry>();
             foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
@@ -1104,34 +1139,433 @@ namespace Scripting.Managed.Editor
                 {
                     continue;
                 }
-                // FileInfo 的大小 / 修改时间读取也可能抛 IO 异常（文件被删 / 被独占）：同样由调用方
-                // 转 E_ASSET_ROOT，不静默跳过（跳过会把"少了一条"藏起来）。
-                var info = new FileInfo(file);
-                long sizeBytes = info.Length;
-                string modifiedUtc = info.LastWriteTimeUtc.ToString("o", CultureInfo.InvariantCulture);
                 string kind = AssetDisplayProviders.KindOf(Path.GetExtension(relative));
-                bool registered = registry.HasResource(relative);
-                NoteNativeCall();
+                IDisplayProvider provider = sourceDisplayEnabled
+                    ? AssetDisplayProviders.Resolve(kind, relative)
+                    : DefaultFileDisplayProvider.Shared;
                 var context = new AssetContext
                 {
-                    ResourceRoot = root,
                     RelativePath = relative,
                     Kind = kind,
-                    SizeBytes = sizeBytes,
-                    ModifiedUtc = modifiedUtc,
-                    Registered = registered,
                 };
-                IReadOnlyList<AssetEntry> described = AssetDisplayProviders.Resolve(kind).Describe(context);
+                if (sourceDisplayEnabled && provider is ShaderSourceDisplayProvider &&
+                    !TryCollectShaderSourceFiles(file, projectRoot, context.SourceFiles, out errorMessage))
+                {
+                    return null;
+                }
+                IReadOnlyList<AssetEntry> described = provider.Describe(context);
                 if (described == null)
                 {
                     continue;
                 }
                 entries.AddRange(described);
             }
-            // 输出顺序必须稳定（枚举顺序由文件系统决定）：按路径序数排序，前端表格与两次快照比对都不
-            // 依赖文件系统的返回顺序。
-            entries.Sort((left, right) => string.CompareOrdinal(left.Path, right.Path));
-            return entries;
+
+            if (sourceDisplayEnabled)
+            {
+                // C# 源根与「生成绑定源取回目录」只在真有 C# 显示资源时才需要：按需解析（拆到循环里，
+                // 免得只显 shader 源的环境被一个无关目录判失败）。
+                string csharpSourceRoot = string.Empty;
+                bool csharpSourceRootResolved = false;
+                string codegenBindingsRelative = string.Empty;
+                foreach (AssetDisplayProviders.DisplayResource resource in AssetDisplayProviders.DisplayResources)
+                {
+                    var context = new AssetContext
+                    {
+                        RelativePath = resource.Path,
+                        Kind = resource.Kind,
+                    };
+                    if (resource.Provider is CSharpSourceDisplayProvider)
+                    {
+                        if (!csharpSourceRootResolved)
+                        {
+                            if (!TryResolveCSharpSourceRoot(projectRoot, out csharpSourceRoot, out errorMessage))
+                            {
+                                return null;
+                            }
+                            codegenBindingsRelative = ResolveCodegenBindingsRelativePath();
+                            csharpSourceRootResolved = true;
+                        }
+                        if (!TryCollectCSharpSourceFiles(csharpSourceRoot, projectRoot, context.SourceFiles,
+                                out errorMessage))
+                        {
+                            return null;
+                        }
+                        // 128 生成绑定源本批不显示，但明示略去 + 给取回目录（不静默隐藏）。
+                        context.OmittedSourceDirectories.Add(codegenBindingsRelative);
+                    }
+                    else if (resource.Provider is ShaderSourceDisplayProvider)
+                    {
+                        string shaderLibraryFullPath = Path.Combine(root,
+                            resource.Path.Replace('/', Path.DirectorySeparatorChar));
+                        if (!TryCollectShaderSourceFiles(shaderLibraryFullPath, projectRoot, context.SourceFiles,
+                                out errorMessage))
+                        {
+                            return null;
+                        }
+                    }
+                    IReadOnlyList<AssetEntry> described = resource.Provider.Describe(context);
+                    if (described != null)
+                    {
+                        entries.AddRange(described);
+                    }
+                }
+            }
+
+            // 输出顺序必须稳定（枚举顺序由文件系统决定）：先按 path 去重（`path` 同时是稳定标识；先出现者胜），
+            // 再按 path 序数排序。
+            var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+            var unique = new List<AssetEntry>(entries.Count);
+            foreach (AssetEntry entry in entries)
+            {
+                if (seenPaths.Add(entry.Path))
+                {
+                    unique.Add(entry);
+                }
+            }
+            unique.Sort((left, right) => string.CompareOrdinal(left.Path, right.Path));
+            return unique;
+        }
+
+        // ------------------------------------------------------------------------------------
+        // 源显示的主线程 IO（editor-code-source-display 2.1 / 2.2 / design D3）
+        //
+        // 契约：提供者不碰文件系统、不调门面 —— 下面这些活都在主线程命令执行里做完，结果填进
+        // AssetContext（SourceFiles / OmittedSourceDirectories），提供者只投影。
+        // ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// 工程根：env `CASCADED_EDITOR_PROJECT_ROOT` 优先（测试传临时根），否则资源根的上级。
+        /// 不存在 / 路径非法 = 显式错误（不静默按空列表冒充成功，D5）。
+        /// </summary>
+        private static bool TryResolveProjectRoot(string assetRoot, out string projectRoot, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            projectRoot = string.Empty;
+            string configured = Environment.GetEnvironmentVariable("CASCADED_EDITOR_PROJECT_ROOT") ?? string.Empty;
+            string candidate;
+            if (configured.Length != 0)
+            {
+                candidate = configured;
+            }
+            else
+            {
+                string fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(assetRoot));
+                candidate = Path.GetDirectoryName(fullRoot) ?? string.Empty;
+                if (candidate.Length == 0)
+                {
+                    errorMessage = "工程根不可用：资源根 \"" + assetRoot + "\" 没有上级目录（源条目的 path 基准无从确定）";
+                    return false;
+                }
+            }
+            try
+            {
+                projectRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException ||
+                                       ex is PathTooLongException)
+            {
+                errorMessage = "工程根不可用：路径非法（\"" + candidate + "\"）：" + ex.Message;
+                return false;
+            }
+            if (!Directory.Exists(projectRoot))
+            {
+                errorMessage = "工程根不可用：目录不存在（\"" + projectRoot + "\"；来源 " +
+                               (configured.Length != 0 ? "CASCADED_EDITOR_PROJECT_ROOT" : "资源根上级") + "）";
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>C# 源根 = 工程根下的 `Scripting/`：不存在 / 不是目录 = 显式错误（D5）。</summary>
+        private static bool TryResolveCSharpSourceRoot(string projectRoot, out string sourceRoot,
+            out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            sourceRoot = Path.Combine(projectRoot, "Scripting");
+            if (!Directory.Exists(sourceRoot))
+            {
+                errorMessage = "C# 源根不可用：目录不存在（\"" + sourceRoot + "\"）；源显示需要它在工程根下，" +
+                               "或把 CASCADED_EDITOR_SOURCE_DISPLAY 设为 off";
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 读 shLib 字节、提取实际编译进库的源路径（D2 / 溯源-004）：`m_ShaderFiles` 是 ShaderLibrary 的
+        /// 第一个字段 —— 文件开头是 map 条数（uint64），紧随第一条目的键（PathHash 序列化成
+        /// 「uint64 长度 + ASCII 字节」，见 CACore/header/HashKeys.h 与 CodeGenSerialization.h 的字节契约）。
+        /// 之后逐条扫「长度前缀 + 可打印 ASCII」的字符串，取与首条键**同目录前缀**的相对路径并去重
+        ///（键 / 每个源文件的 path 字段 / 根结构表的键都按同一序列化写入，去重后就是键集合）。
+        /// 提取条数与开头声明的 map 条数不符 ⇒ 序列化格式已变，显式报错（不静默少给/多给）。
+        /// </summary>
+        private static bool TryExtractShaderSourcePaths(byte[] bytes, out List<string> sourcePaths,
+            out string errorMessage)
+        {
+            sourcePaths = new List<string>();
+            errorMessage = string.Empty;
+            const int lengthPrefixSize = sizeof(ulong);
+            if (bytes == null || bytes.Length < lengthPrefixSize * 3)
+            {
+                errorMessage = "shLib 字节过短（" + (bytes == null ? 0 : bytes.Length) +
+                               " 字节），读不出 m_ShaderFiles 条数与首条源路径";
+                return false;
+            }
+            int position = 0;
+            ulong declaredCount = 0;
+            if (!TryReadUInt64(bytes, ref position, out declaredCount))
+            {
+                errorMessage = "shLib 开头不是 m_ShaderFiles 条数（格式可能已变）";
+                return false;
+            }
+            if (declaredCount == 0)
+            {
+                return true; // 合法空库：0 条源路径
+            }
+            string firstPath;
+            if (!TryReadLengthPrefixedAscii(bytes, ref position, out firstPath) || !IsRelativeSourcePath(firstPath))
+            {
+                errorMessage = "shLib 的 m_ShaderFiles 首条键不是合法的相对源路径（格式可能已变）";
+                return false;
+            }
+            string prefix = DirectoryPrefixOf(firstPath);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var found = new List<string>();
+            for (int offset = 0; offset + lengthPrefixSize <= bytes.Length; ++offset)
+            {
+                int probe = offset;
+                if (!TryReadLengthPrefixedAscii(bytes, ref probe, out string candidate))
+                {
+                    continue;
+                }
+                if (!IsRelativeSourcePath(candidate))
+                {
+                    continue;
+                }
+                if (prefix.Length != 0 && !candidate.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (seen.Add(candidate))
+                {
+                    found.Add(candidate);
+                }
+            }
+            if ((ulong)found.Count != declaredCount)
+            {
+                errorMessage = "shLib 源路径提取失败：m_ShaderFiles 声明 " + declaredCount + " 条、按字节提取 " +
+                               found.Count + " 条（序列化格式可能已变，源映射需要同步）";
+                return false;
+            }
+            found.Sort(StringComparer.Ordinal);
+            sourcePaths = found;
+            return true;
+        }
+
+        /// <summary>读一个 uint64（本机字节序，落盘端与运行时同机）。</summary>
+        private static bool TryReadUInt64(byte[] bytes, ref int position, out ulong value)
+        {
+            value = 0;
+            if (position < 0 || position + sizeof(ulong) > bytes.Length)
+            {
+                return false;
+            }
+            value = BitConverter.ToUInt64(bytes, position);
+            position += sizeof(ulong);
+            return true;
+        }
+
+        /// <summary>读一个「uint64 长度 + 可打印 ASCII 字节」的字符串（CodeGen 的字符串字节契约）。</summary>
+        private static bool TryReadLengthPrefixedAscii(byte[] bytes, ref int position, out string text)
+        {
+            text = string.Empty;
+            int start = position;
+            if (!TryReadUInt64(bytes, ref position, out ulong length))
+            {
+                position = start;
+                return false;
+            }
+            if (length == 0 || length > (ulong)(bytes.Length - position))
+            {
+                position = start;
+                return false;
+            }
+            int charStart = position;
+            int charCount = (int)length;
+            for (int index = 0; index < charCount; ++index)
+            {
+                byte value = bytes[charStart + index];
+                if (value < 0x20 || value > 0x7E)
+                {
+                    position = start;
+                    return false;
+                }
+            }
+            text = Encoding.ASCII.GetString(bytes, charStart, charCount);
+            position = charStart + charCount;
+            return true;
+        }
+
+        /// <summary>源路径形状：相对路径（无盘符 / 反斜杠 / 前导斜杠）、可打印 ASCII、无空段与 `.`/`..` 段。</summary>
+        private static bool IsRelativeSourcePath(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text[0] == '/' || text.IndexOf(':') >= 0 || text.IndexOf('\\') >= 0)
+            {
+                return false;
+            }
+            foreach (char ch in text)
+            {
+                if (ch < 0x20 || ch > 0x7E)
+                {
+                    return false;
+                }
+            }
+            string[] segments = text.Split('/');
+            foreach (string segment in segments)
+            {
+                if (segment.Length == 0 || segment == "." || segment == "..")
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>首条源路径的目录前缀（到最后一个 `/` 为止，含）；没有目录时为空串。</summary>
+        private static string DirectoryPrefixOf(string path)
+        {
+            int slash = path.LastIndexOf('/');
+            return slash < 0 ? string.Empty : path.Substring(0, slash + 1);
+        }
+
+        /// <summary>
+        /// 读一个 shLib 文件 → 源路径列表 → `CAResources/&lt;源路径&gt;.slang` 的源文件信息（相对工程根 +
+        /// 是否存在）。源文件缺失是合法结果（历史路径的 kind 用 missing 变体表达），不在这里失败。
+        /// </summary>
+        private static bool TryCollectShaderSourceFiles(string shaderLibraryFullPath, string projectRoot,
+            List<AssetSourceFile> sourceFiles, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            sourceFiles.Clear();
+            byte[] bytes;
+            try
+            {
+                bytes = File.ReadAllBytes(shaderLibraryFullPath);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+                                       ex is NotSupportedException || ex is ArgumentException)
+            {
+                errorMessage = "读 shLib 字节失败（源映射需要它）：\"" + shaderLibraryFullPath + "\"：" + ex.Message;
+                return false;
+            }
+            if (!TryExtractShaderSourcePaths(bytes, out List<string> sourcePaths, out errorMessage))
+            {
+                errorMessage = "shLib 源映射失败（\"" + shaderLibraryFullPath + "\"）：" + errorMessage;
+                return false;
+            }
+            foreach (string sourcePath in sourcePaths)
+            {
+                sourceFiles.Add(BuildSourcePathInfo("CAResources/" + sourcePath + ".slang", projectRoot));
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 扫 Scripting/ 下的**手写** `*.cs`：`obj/`（MSBuild 生成产物，含 AssemblyInfo / AssemblyAttributes）
+        /// 与 `bin/` 一律排除。128 个生成绑定源在 `out/build/&lt;preset&gt;/codegen/bindings`，不在这个根下 ——
+        /// 它们由 source-omitted 标记条目明示略去 + 给取回目录（见 CSharpSourceDisplayProvider）。
+        /// </summary>
+        private static bool TryCollectCSharpSourceFiles(string sourceRoot, string projectRoot,
+            List<AssetSourceFile> sourceFiles, out string errorMessage)
+        {
+            errorMessage = string.Empty;
+            sourceFiles.Clear();
+            var handwritten = new List<string>();
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
+                {
+                    // 通配符在 Windows 上对扩展名有历史怪癖（"*.abc" 也可能命中 ".abcd"）：再按扩展名精确收一次。
+                    if (!Path.GetExtension(file).Equals(".cs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    string relativeFromRoot = Path.GetRelativePath(sourceRoot, file).Replace('\\', '/');
+                    if (IsBuildArtifactPath(relativeFromRoot))
+                    {
+                        continue;
+                    }
+                    handwritten.Add("Scripting/" + relativeFromRoot);
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+                                       ex is NotSupportedException || ex is ArgumentException)
+            {
+                errorMessage = "扫 C# 源根失败：\"" + sourceRoot + "\"：" + ex.Message;
+                return false;
+            }
+            handwritten.Sort(StringComparer.Ordinal);
+            foreach (string sourcePath in handwritten)
+            {
+                sourceFiles.Add(BuildSourcePathInfo(sourcePath, projectRoot));
+            }
+            return true;
+        }
+
+        /// <summary>构建产物路径：任意目录段是 `obj` / `bin`（不区分大小写）即排除；最后一段是文件名。</summary>
+        private static bool IsBuildArtifactPath(string relativePath)
+        {
+            string[] segments = relativePath.Split('/');
+            for (int index = 0; index + 1 < segments.Length; ++index)
+            {
+                if (segments[index].Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+                    segments[index].Equals("bin", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 按源路径（相对工程根）填一条源文件信息：只算**源路径 + 是否存在**（提供者据此选 kind），
+        /// 不读大小 / 修改时间，也不查注册状态（那些是用户没要求的固定元数据，D5 删）。
+        /// </summary>
+        private static AssetSourceFile BuildSourcePathInfo(string sourcePath, string projectRoot)
+        {
+            string fullPath = Path.Combine(projectRoot, sourcePath.Replace('/', Path.DirectorySeparatorChar));
+            return new AssetSourceFile
+            {
+                Path = sourcePath,
+                Exists = File.Exists(fullPath),
+            };
+        }
+
+        /// <summary>
+        /// 「生成绑定源」的取回目录（相对工程根）：`out/build/&lt;preset&gt;/codegen/bindings`。`&lt;preset&gt;`
+        /// 从编辑器服务程序集位置推导（`&lt;repo&gt;/out/build/&lt;preset&gt;/bin/Scripting.Managed.dll`）；
+        /// 布局不认识时退到 `out/build`（仍点名取回区，绝不把略去这件事静默隐藏）。
+        /// </summary>
+        private static string ResolveCodegenBindingsRelativePath()
+        {
+            string assemblyDirectory = Path.GetDirectoryName(typeof(EditorService).Assembly.Location) ??
+                                       string.Empty;
+            if (assemblyDirectory.Length != 0)
+            {
+                var bin = new DirectoryInfo(assemblyDirectory);
+                DirectoryInfo preset = bin.Parent;
+                DirectoryInfo build = preset?.Parent;
+                DirectoryInfo outDirectory = build?.Parent;
+                if (bin.Name.Equals("bin", StringComparison.OrdinalIgnoreCase) &&
+                    preset != null && build != null && outDirectory != null &&
+                    build.Name.Equals("build", StringComparison.OrdinalIgnoreCase) &&
+                    outDirectory.Name.Equals("out", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "out/build/" + preset.Name + "/codegen/bindings";
+                }
+            }
+            return "out/build";
         }
 
         /// <summary>

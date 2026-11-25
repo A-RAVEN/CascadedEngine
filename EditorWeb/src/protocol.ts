@@ -16,19 +16,33 @@ export interface EditorObject {
 export type CommandName = 'get-object' | 'list-objects' | 'set-title' | 'set-size' | 'undo' | 'list-assets';
 
 /**
- * 资产条目（PROTOCOL.md 2.6）：v1 一文件一条目，children 恒为空数组、nodeId = path =
- * 相对资源根的正斜杠路径；v2 的程序集展开 / 衍生物归组只往 children 里挂子条目，nodeId 仍稳定。
+ * 资产条目（PROTOCOL.md 2.6）：**只有 path + kind 两个字段**（2026-11-25 用户裁定：条目不加强制的固定元数据，
+ * 提供者决定显示什么、浏览器忠实渲染）。**路径基准按 kind 区分**（editor-code-source-display）：数据型条目 path
+ * 相对资源根；源种类（shader-source / csharp-source / shader-source-missing）path 相对工程根；source-omitted 的
+ * path 是取回目录（相对工程根）。path 同时是条目的稳定标识。
  */
 export interface AssetEntry {
-  nodeId: string;
   path: string;
   kind: string;
-  sizeBytes: number;
-  /** ISO 8601 UTC（FileInfo.LastWriteTimeUtc 的 "o" 格式）。 */
-  modifiedUtc: string;
-  /** 该路径在资源注册表里已有条目；未注册的文件同样列出，只是这里为 false。 */
-  registered: boolean;
-  children: AssetEntry[];
+}
+
+/**
+ * 源种类（PROTOCOL.md 2.6，与 C# 的 EditorProtocol.AssetKindShaderSource / AssetKindCSharpSource /
+ * AssetKindShaderSourceMissing 逐字一致）：这些 path 相对**工程根**（源文件在资源根之外），前端不得按资源根解读。
+ */
+export const SOURCE_KINDS = ['shader-source', 'csharp-source', 'shader-source-missing'] as const;
+
+/**
+ * 标记种类（PROTOCOL.md 2.6，与 C# 的 EditorProtocol.AssetKindShaderSourceMissing / AssetKindSourceOmitted
+ * 逐字一致）：shader-source-missing = 历史上编译进库、现在找不到源文件的路径（仍产条目）；
+ * source-omitted = 本批明示略去的源目录（path 是取回目录）。
+ */
+export const SHADER_SOURCE_MISSING_KIND = 'shader-source-missing';
+export const SOURCE_OMITTED_KIND = 'source-omitted';
+
+/** 判断条目是否属于「源种类」（其 path 是相对工程根的）。 */
+export function isSourceKind(kind: string): boolean {
+  return (SOURCE_KINDS as readonly string[]).includes(kind);
 }
 
 /** C→S hello：连接后第一条消息，收到 welcome 之前不能发 command。 */

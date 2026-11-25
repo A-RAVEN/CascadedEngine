@@ -1,0 +1,35 @@
+﻿# evidence 2.1：shader 源映射（shLib 字节）+ 提供者纯投影
+
+生成时间：2026-11-25。本文件的读数全部由只读命令产出。
+
+## ① 提供者文件不碰文件系统 / 不调门面（AssetDisplay.cs 契约、design D3）
+
+命令：对 Scripting/Managed/Editor/DisplayProviders/*.cs 逐个统计「调用形状」的命中数（注释里点名契约不算调用）：
+  -Pattern 'Directory\.' 命中 0
+  -Pattern 'FileInfo\(' 命中 0
+  -Pattern 'new FileInfo' 命中 0
+  -Pattern 'HasResource\(' 命中 0
+  -Pattern 'IResourceRegistry' 命中 0
+  -Pattern 'GetResourceRootPath' 命中 0
+  -Pattern 'GetResourceFullPath' 命中 0
+  -Pattern 'File\.(Read|Write|Exists|Open|Delete)' 命中 0
+合计调用形状命中：0（期望 0）
+
+## ② 真实 shLib 字节提取（算法同 EditorService.TryExtractShaderSourcePaths）
+
+命令：PowerShell 复算同一个算法（uint64 m_ShaderFiles 条数 → 首条键 → 长度前缀可打印 ASCII 路径，按首条键目录前缀过滤、去重；提取条数必须等于声明条数）。
+* VulkanShaderLibrary.shLib：声明条数 16、提取条数 16、一致=True
+    映射 CAResources/<路径>.slang：存在 16、缺失 0
+* D3D12ShaderLibrary.shLib：声明条数 16、提取条数 16、一致=True
+    映射 CAResources/<路径>.slang：存在 16、缺失 0
+
+结论：两个真实 shLib 各声明 16 条、按字节提取 16 条（格式一致），全部 16 条都能映射到现有 .slang；
+本仓库真实库没有缺源条目（design Context 里「Vulkan 21 条含 5 条缺源」是裸子串搜索把 .hslang
+包含文件与一个长度字节伪串算进来的计数；m_ShaderFiles 两个库实测都是 16 条）。缺源分支由
+TestCodeSourceDisplay 的写死夹具（Shaders/Missing 无 .slang）覆盖。
+
+## ③ 夹具布局复算（TestCodeSourceDisplay 的两个 shLib 字节）
+
+命令：按测试里的 BuildShaderLibraryFixture 布局生成字节，再跑同一个提取算法。
+* Vulkan 布局（键+有值 path）：声明 3、提取 3、一致=True、路径=Shaders/Alpha,Shaders/Beta,Shaders/Missing
+* D3D12 布局（键+空 path）：声明 4、提取 4、一致=True、路径=Shaders/Alpha,Shaders/Beta,Shaders/Missing,Shaders/Shared

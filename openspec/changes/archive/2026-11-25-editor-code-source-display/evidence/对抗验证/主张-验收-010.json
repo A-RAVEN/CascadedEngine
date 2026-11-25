@@ -1,0 +1,9 @@
+{
+  "id": "验收-010",
+  "face": "④源根空容错",
+  "severity": "minor",
+  "claim": "容错红态缺正控：只断言「源条目空」时，提供者整段没接线、或 shLib 根本没有被枚举、或整体条目被清空，都能让这条绿。spec 也没要求在同一夹具里保留一条数据型条目（.res/.tex）以证明「只有源根来源的条目为空，其余枚举照常」。没有正控，「容错」与「没输出」不可区分；这条红态无法证明提供者是在处理空源根，而不是根本没跑。",
+  "location": "specs/editor-code-source-display/spec.md 场景「**THEN** 提供者 MUST 产空列表（list-assets ok=true，源条目空），MUST NOT 报错或整体失败」；tasks.md 3.1「红态：源根空→源条目空不报错」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-010.md",
+  "suggested_fix": "同一用例内固定顺序：① 源根有 2 份 .slang + 资源根有 1 条 .res → 断言共 3 条（源条目 path/kind 与 .res 条目都写死）；② 清空/移走源目录 → 断言源条目 0 且那条 .res 仍在（ok=true）；③ 恢复源目录 → 断言回到 3 条。没有②里的 .res 正控，不许算这条红态通过。"
+}

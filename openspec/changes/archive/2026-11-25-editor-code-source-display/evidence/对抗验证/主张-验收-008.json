@@ -1,0 +1,9 @@
+{
+  "id": "验收-008",
+  "face": "③红态与注册生效",
+  "severity": "Blocking",
+  "claim": "tasks 1.1 的「精确绑定优先种类默认（写死两路径断言）」与 1.2 的「登记表可查」没有任何可执行落点：仓库只有三层测试（CoreTests C++、GPUBackendTester C++、check_*.py 进程脚本），托管侧只有一个 library 工程 Scripting.Managed.csproj，git grep xunit|nunit|mstest|Microsoft.NET.Test.Sdk 零命中；tester 能观察的只有 WebSocket 的 list-assets 结果，无法直接观察 Resolve(kind, path) 的优先级或「登记表里有什么」。照工件执行，这两条验收只能落成代码走读或一次性临时脚本（不进仓库、不算测试），属恒真验收——而「注册真生效」正是本 change 的核心行为，恰好没有一条能失败的运行时判据。",
+  "location": "tasks.md 1.1「验收：构建过；精确绑定优先种类默认（写死两路径断言）；仅种类注册仍兼容；grep IResource.h/IResourceFactory.h/门面头零改动」与 1.2「验收：构建过；登记表可查；path 在/不在 CAAssets 两态可核」；docs/testing.md「本项目把测试分三层。**任何新功能都必须落在其中至少一层，并且留下一条「在缺陷存在时会变红」的断言** —— 只贴日志、只手工造一次红态、只写「已验证」，都不算测试。」；Scripting/Managed/Scripting.Managed.csproj（只有 Microsoft.Web.WebView2 一个 PackageReference）",
+  "evidence_ref": "evidence/对抗验证/证据-验收-008.md",
+  "suggested_fix": "二选一并写进 tasks：① 新增一个 C# 测试工程（或把断言做成托管侧自检命令，经 WebSocket 暴露），给命令与期望读数，并把工程登记进 build.py 与 docs/testing.md 的层清单；② 不改测试设施，把优先级做成 list-assets 可观察的夹具：临时工程根预置两条 shLib，一条用 (shader-library, 具体路径) 绑「只产一条哨兵条目」的提供者、另一条不绑（落种类默认 → 源条目），断言两条的输出形状写死不同；1.2 的「登记表可查」同样改成行为断言（路径在 CAAssets 的注册显示资源不引入、不在的引入）。无论哪条，都不许把「写死两路径断言」留成无落点的文字。"
+}

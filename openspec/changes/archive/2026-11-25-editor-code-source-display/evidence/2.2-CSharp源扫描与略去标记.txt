@@ -1,0 +1,48 @@
+﻿# evidence 2.2：C# 手写源扫描 + 生成绑定源明示略去
+
+生成时间：2026-11-25。本文件的读数全部由只读命令产出（不跑构建、不跑测试）。
+
+## ① Scripting/ 下 *.cs 的构成（主线程扫描的输入）
+
+命令：Get-ChildItem Scripting -Recurse -File -Filter *.cs 分类统计（排除规则同 EditorService.IsBuildArtifactPath：任意目录段是 obj / bin）。
+* 全部 *.cs：40
+* obj/ 下（要被排除的生成产物）：2
+    Scripting\Managed\obj\Debug\net8.0\.NETCoreApp,Version=v8.0.AssemblyAttributes.cs
+    Scripting\Managed\obj\Debug\net8.0\Scripting.Managed.AssemblyInfo.cs
+* bin/ 下（要被排除的构建输出）：0
+* 手写源（扫描结果应当等于这个数）：38
+
+按目录分组（手写源）：
+* Assets：7 条
+* DisplayProviders：2 条
+* Editor：7 条
+* Importers：7 条
+* Managed：8 条
+* Scene：7 条
+
+## ② 128 个生成绑定源的位置（不在 Scripting/ 源根下）
+
+命令：(Get-ChildItem out/build/x64-debug/codegen/bindings -Filter *.cs).Count；并核对它们是否落在 Scripting/ 下。
+* out/build/x64-debug/codegen/bindings 下 *.cs：128（csproj 显式 Include 进 Scripting.Managed.dll 的生成绑定）
+* 是否落在 Scripting/ 源根下：0 条（0 = 不会混进手写源扫描）
+
+## ③ 明示略去 + 取回目录在实现里的落点
+
+命令：Select-String 找略去标记的产出与推导代码。
+* Scripting/Managed/Editor/EditorService.cs 里的 OmittedSourceDirectories：2 处
+    1212: context.OmittedSourceDirectories.Add(codegenBindingsRelative);
+    1255: // AssetContext（SourceFiles / OmittedSourceDirectories），提供者只投影。
+* Scripting/Managed/Editor/EditorService.cs 里的 ResolveCodegenBindingsRelativePath：2 处
+    1203: codegenBindingsRelative = ResolveCodegenBindingsRelativePath();
+    1570: private static string ResolveCodegenBindingsRelativePath()
+* Scripting/Managed/Editor/EditorProtocol.cs 里的 AssetKindSourceOmitted：1 处
+    129: internal const string AssetKindSourceOmitted = "source-omitted";
+* Scripting/Managed/Editor/DisplayProviders/CSharpSourceDisplayProvider.cs 里的 OmittedNodeIdSuffix：2 处
+    26: internal const string OmittedNodeIdSuffix = "#omitted-sources";
+    82: NodeId = directory + OmittedNodeIdSuffix,
+
+结论：Scripting/ 下共 40 个 *.cs = 38 个手写源 + 2 个 obj 生成产物；
+主线程扫描排除 obj/ 与 bin/，真实仓库会产出 38 条 csharp-source（本 change 新增的两个提供者文件也在其中）。
+生成绑定源共 128 个、在 out/build/x64-debug/codegen/bindings（落在 Scripting/ 源根下的是 0 条），
+它们不会混进手写源扫描；由 kind=source-omitted 的顶层标记条目给出取回目录
+out/build/<preset>/codegen/bindings（<preset> 从编辑器服务程序集位置推导）。

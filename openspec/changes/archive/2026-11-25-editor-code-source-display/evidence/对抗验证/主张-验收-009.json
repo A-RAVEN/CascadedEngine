@@ -1,0 +1,9 @@
+{
+  "id": "验收-009",
+  "face": "④源根空容错",
+  "severity": "misleading",
+  "claim": "spec 场景要求「源根不存在或无 .slang」两态都容错，tasks 3.1 的红态却只写「源根空→源条目空不报错」：『存在但为空』与『目录不存在』是两条不同代码路径（Directory.EnumerateFiles 对缺失目录抛 DirectoryNotFoundException，现有代码对资产根本身就是先 `if (!Directory.Exists(root))` 分流再枚举），只测空目录时，一个在缺失目录上抛错的实现仍能绿。另外 tasks 写的「不报错」没有钉 spec 已钉的 `ok=true`（ok=false 的 E_ASSET_ROOT 也是「不抛异常」，但语义是整体失败），判据比 spec 松。",
+  "location": "specs/editor-code-source-display/spec.md「源根不存在/空 MUST 产空列表而非报错」与场景「**WHEN** 源根不存在或无 .slang / **THEN** 提供者 MUST 产空列表（list-assets ok=true，源条目空），MUST NOT 报错或整体失败」；tasks.md 3.1「红态：源根空→源条目空不报错」；Scripting/Managed/Editor/EditorService.cs「if (!Directory.Exists(root))」（资产根的缺失/空两态分流先例）",
+  "evidence_ref": "evidence/对抗验证/证据-验收-009.md",
+  "suggested_fix": "把红态拆成两条构造并各写死读数：① 源目录改名为不存在路径 → list-assets ok=true 且源条目空；② 源目录存在但删空 → 同样；两条都要断言数据型条目仍在（正控）。把 tasks 3.1 的「不报错」改成 spec 的「ok=true 且无 E_ASSET_ROOT」，并让两条都保留可回退（改名后改回，再断言源条目恢复 N 条）。"
+}

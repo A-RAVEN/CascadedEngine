@@ -1,0 +1,9 @@
+{
+  "id": "验收-001",
+  "face": "①装配条目隐去",
+  "severity": "Blocking",
+  "claim": "本 change 引入的源条目（path/nodeId=相对工程根、文件位于资源根 CAAssets 之外）与生效的 editor-asset-browser 规范两条硬口径直接互斥：「列出资源根（门面 GetResourceRootPath）下的编辑器资产文件」与「返回条目 MUST 与真实文件逐条一致……nodeId MUST = path = 相对资源根路径」。增量 spec 只 MODIFIED 了「显示提供者」一条需求（文件里只有一个 ### Requirement），既没有改「底部通栏 dock」那条需求，也没有把「逐条一致」限定到数据型条目。合并后的生效规范同时要求「条目只来自资源根且相对资源根」与「从 CAResources/Shaders、Scripting 引入相对工程根的源条目」，任何照旧场景写的验收都必然恒假（或只能被静默忽略，等于没有验收）。",
+  "location": "openspec/specs/editor-asset-browser/spec.md「列出资源根（门面 `GetResourceRootPath`）下的编辑器资产文件」/「返回条目 MUST 与真实文件逐条一致（path/nodeId/sizeBytes/kind/modifiedUtc/registered/children 七项）；nodeId MUST = path = 相对资源根路径」；openspec/changes/editor-code-source-display/specs/editor-asset-browser/spec.md 只有「## MODIFIED Requirements / ### Requirement: 显示提供者必须资产中心且按种类注册，核心资源接口不动」；openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md「path/nodeId=相对工程根源路径」；Scripting/Managed/Editor/EditorService.cs「foreach (string file in Directory.EnumerateFiles(root, \"*\", SearchOption.AllDirectories))」与「entries.Sort((left, right) => string.CompareOrdinal(left.Path, right.Path));」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-001.md",
+  "suggested_fix": "在增量 spec 里再 MODIFIED「资产浏览器必须是底部通栏独立 dock 浏览资源根下的 ② 阶段文件」这条需求：明确条目集合 = 资源根文件枚举条目 + 注册显示资源条目；nodeId/path 口径按来源分两类（数据条目相对资源根，源条目相对工程根并带 CAResources/ 或 Scripting/ 前缀）；把「与真实文件逐条一致」场景限定为「资源根内文件对应的条目」，另加一条场景断言源条目的 path 前缀与数量。不许只把口径留在 design。"
+}

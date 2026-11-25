@@ -1,0 +1,86 @@
+# evidence 5.4：§5 验收读数（5.1–5.4；5.5 见 5.5-视觉核对.md）
+
+生成时间：2026-11-25。本文件的读数全部取自主循环回传的原始日志（`evidence/5.4-*.txt`、`evidence/4.1-全量-*.json`）
+与只读命令，逐条核对后才勾选 5.1–5.4。
+
+## ① 构建过（构建先于跑测试）
+
+- 主循环执行 `python build.py --config Debug` → BUILD SUCCESSFUL（0 错误，含 EditorWeb `tsc --noEmit` + `vite build`）。
+- 产物时间戳核对（证明构建包含 §5 改动）：`GPUBackendTester.exe` 18:13:51、`Scripting.Managed.dll` 18:13:54、
+  `bin/editor-web/index.html` 18:13:56；最后一批源改动：`AssetDisplay.cs` 18:05:37、`EditorService.cs` 18:05:51、
+  `assets.ts` 18:06:26、`Main.cpp` 18:09:29 → 三个产物都晚于全部源改动。
+
+## ② 5.1 两字段契约（禁词与镜像）
+
+见 `evidence/5.1-5.3-两字段极简.txt` 第 ①/② 节：`sizeBytes|modifiedUtc|registered|children|nodeId` 在
+`AssetDisplay.cs` / `PROTOCOL.md` / `protocol.ts` / `EditorProtocol.cs` 各 0 命中；两字段三处逐字一致；
+协议版本仍 1。
+
+## ③ 5.2 前端两列（tsc+vite 过 + 禁词 0）
+
+- 构建里的 `tsc --noEmit && vite build` 通过（见 ①，构建包含 EditorWeb）。
+- `assets.ts` 的 `sizeBytes|modifiedUtc|registered|已注册|未注册|大小|修改时间` 命中 0
+  （`evidence/5.1-5.3-两字段极简.txt` 第 ③ 节）。
+
+## ④ 5.3 主线程/提供者去固定元数据
+
+`EditorService.cs` 与两个提供者的 `sizeBytes|modifiedUtc|registered|FileInfo` 命中 0
+（`evidence/5.1-5.3-两字段极简.txt` 第 ④ 节）；枚举只取一次资源根，源文件只用 `File.Exists` 查存在性。
+
+## ⑤ 5.4 两独立用例仍 pass（原始日志关键行）
+
+`evidence/5.4-TestCodeSourceDisplay.txt`（exit 0）：
+
+```
+[代码源显示 测试 ①] 8 条：3 shader-source + 1 shader-source-missing + 2 csharp-source + 1 source-omitted + 1 探针 shLib；两个钉死 shLib 与 dll 均不出现，缺源 kind 与 obj 排除都成立
+[代码源显示 测试 ②] off → 3 条 shLib 落默认仍显、源条目 0；翻回 on → 8 条恢复、shLib 又隐去
+[代码源显示 测试 ③] 源根非法 → E_ASSET_ROOT 且点名源根；恢复后 ok
+TestCodeSourceDisplay 通过：隐程序集显源（3 shader-source + 1 shader-source-missing + 2 csharp-source + 1 略去标记 + 1 探针 shLib）→ …
+```
+
+`evidence/5.4-TestEditorAssetBrowser.txt`（exit 0）：
+
+```
+[资产浏览器 测试] ① 第一次枚举：3 条预置文件两项全对（path + kind；未知扩展名 kind=file）
+[资产浏览器 测试] ⑤ 线程归因：requestId=201 那一帧 cmdCalls=1（= 1），mode=main-thread
+TestEditorAssetBrowser 通过：① 两项（path+kind）逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + ④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足
+```
+
+`evidence/5.4-TestSourceImporters.txt`（exit 0）：
+
+```
+[TestSourceImporters ②] 资产浏览器 list-assets：6 条 texture + 1 条 mesh 的 path/kind 全对（条目只有两字段）
+TestSourceImporters 通过：…
+```
+
+三个日志里均无 `threw exception|Unhandled|FAILED` 行。
+
+## ⑥ 全量 22 零差异（§5 后重跑，两后端）
+
+`evidence/4.1-全量-vulkan.json`（18:15:48）与 `evidence/4.1-全量-d3d12.json`（18:16:09），与归档基线
+`openspec/changes/archive/2026-11-25-source-importers-png-obj/evidence/4.1-全量-*.json` 逐条对比：
+
+- vulkan：当前 22 条 / 基线 22 条，name+status 差异 **ZERO**，非 pass 0 条；
+- d3d12：当前 22 条 / 基线 22 条，name+status 差异 **ZERO**，非 pass 0 条。
+
+（对比命令：Python 读两份 JSON 后逐条比较 `(name, status)`，输出 `ZERO`。）
+
+## ⑦ --list
+
+`evidence/5.4--list.txt`：26 行，末三项 `TestWebRenderSpike` / `TestSourceImporters` / `TestCodeSourceDisplay`
+（本轮未增删用例；断言落点仍是 list-assets 结果）。
+
+## ⑧ 5.5 视觉（主循环自勾，记录在 5.5-视觉核对.md）
+
+`evidence/3.2-截图.png`（23390 字节，18:14:55）经 read_image 核对：标题/连接状态/刷新按钮 + **「共 8 条」**，
+**两列（路径/种类）**、无大小/修改时间/已注册列；8 条 = Alpha/Beta/Shared.slang（着色器源文件）+
+Missing.slang（着色器源文件（源文件缺失））+ Host.cs/Tool.cs（C# 源文件）+ Browser.shLib（探针 shader-library）+
+`out/build/x64-debug/codegen/bindings`（生成绑定源（已略去））；VulkanShaderLibrary.shLib /
+D3D12ShaderLibrary.shLib / Scripting.Managed.dll 均不出现。抓窗运行日志 `evidence/5.5-抓窗运行.txt` 含
+`[代码源显示 测试 抓窗] dock 画面已落盘：…（23390 字节，推了 318 帧；抓窗前已用数据型增删把 dock 拉回 8 条源列表）`。
+
+## 结论
+
+5.1 / 5.2 / 5.3 / 5.4 的验收条件（构建过、禁词 0、两字段三处逐字、tsc+vite 过、两独立用例 pass、
+全量 22 零差异）全部由上面的真实读数满足；5.5 由主循环自勾。条目极简 path+kind 落地，用户没要求过的
+固定字段（大小/修改时间/注册状态/子条目/编号）全部删除。

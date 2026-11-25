@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-003",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "面⑤（数据型不预设）：新能力规范 :5 的正文写「贴图/模型展示行为 MUST NOT 在本能力预设（落默认提供者是框架兜底，非给数据型定的行为）」，同一要求的场景 :15 却写「texture/mesh MUST 仍落默认提供者（一文件一条目），本能力 MUST NOT 写数据型展示要求」——前半句本身就是给 texture/mesh 定的展示要求（必须是默认提供者、必须一文件一条目），与同一段正文的「MUST NOT 预设」自相矛盾；也与 proposal :7「贴图/模型怎么展示由它们自己的提供者决定，本批不预设、不写要求」、proposal :35 Non-goals、design :14/:55「用户明令不预设 / 非给它们定的行为」相反。这条 MUST 还会把未来给 texture/mesh 注册展示提供者判成违规（因为要求它们「仍落默认提供者」），与「展示什么由资源类型自己决定」的总目标冲突。",
+  "location": "openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md:5「贴图/模型展示行为 MUST NOT 在本能力预设（落默认提供者是框架兜底，非给数据型定的行为）」；同文件 :12「#### Scenario: 数据型不预设展示行为」与 :15「MUST NOT 注册改变其展示行为的提供者；texture/mesh MUST 仍落默认提供者（一文件一条目），本能力 MUST NOT 写数据型展示要求」；openspec/changes/editor-code-source-display/proposal.md:7「贴图/模型怎么展示由它们自己的提供者决定，本批不预设、不写要求（现在落默认提供者只是框架兜底）」、:35「由它们自己的提供者决定，本批不写要求（用户明令不擅自扩展）」；openspec/changes/editor-code-source-display/design.md:14「贴图/模型展示行为（用户明令不预设）」、:55「texture/mesh 仍落默认（框架兜底，非给它们定的行为）」",
+  "evidence_ref": "证据-一致-003.md",
+  "suggested_fix": "删掉 :15 里的「texture/mesh MUST 仍落默认提供者（一文件一条目）」这句规范性行为要求，只保留范围约束：「本能力 MUST NOT 为 texture/mesh 注册改变其展示行为的提供者；其展示行为不属于本能力规定范围」。若确实需要防回归，把「数据型条目行为不变」写成对 editor-asset-browser 既有行为的回归断言（不新增对数据型的要求），并在 tasks 3.1 夹具里放 .tex/.mesh 验证它们仍走既有默认路径（这是回归，不是预设）。"
+}

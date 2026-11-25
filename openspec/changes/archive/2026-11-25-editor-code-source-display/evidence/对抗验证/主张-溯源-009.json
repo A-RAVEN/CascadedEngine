@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-009",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；tasks.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:24「注册显示资源的 path 若已在 CAAssets 枚举到（如 shLib），不重复引入」；design.md:34「env 覆盖（`CASCADED_EDITOR_SHADER_SOURCE_ROOT` / `CASCADED_EDITOR_CSHARP_SOURCE_ROOT`，登记 CSharpHost/README）」；design.md:65「env CASCADED_EDITOR_PROJECT_ROOT 优先」",
+  "claim": "env 命名本身没有凭空：三个新名字都沿用现有 CASCADED_EDITOR_* 前缀（README 的编辑器表里已有 CASCADED_EDITOR_ASSET_ROOT / PORT / PANEL_WIDTH / DOCK_HEIGHT 等），当前在 README 0 处出现正是 tasks 2.3「新 env 登记 CSharpHost/README」要补的。但「去重举例（如 shLib）」凭空：按 D2，能进注册显示资源表的是 C# dll 这类不在 CAAssets 的路径；shLib 在 CAAssets 里、由 D1 的按种类提供者处理，从没写成 RegisterDisplayResource 条目（spec 场景只说对 (shader-library, 「VulkanShaderLibrary.shLib」) 注册提供者，这是 D1 的 path 绑定，不是 D2 的显示资源表）。谁负责登记 shLib 这一条（按种类 Register 还是 RegisterDisplayResource？path 键写哪个后端哪份 shLib？），tasks 2.1 没写；同一段里「注册显示资源去重」与「path 绑定」两套机制混在了一起，实现者无法判断 shLib 是否需要进注册表。",
+  "evidence": "证据-溯源-009.md：三个新 env 名在 change 外 0 处、README 编辑器 env 表节选；D2 只登记 dll 的引文；CAAssets 两份 shLib；D1 与 D2 两套机制的原文。"
+}

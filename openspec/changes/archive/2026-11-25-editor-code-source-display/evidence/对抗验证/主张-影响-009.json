@@ -1,0 +1,10 @@
+{
+  "claim_id": "主张-影响-009",
+  "face": "影响面与静默降级",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/tasks.md 4.1 与 4.2",
+  "anchor": "4.1（回归）要求 `--list` 含 TestCodeSourceDisplay、该用例独立进程过，但唯一的完整构建验证写在 4.2「（最后）」——按字面顺序 4.1 跑的是一个不含新用例的旧二进制",
+  "problem": "tasks.md:26（4.1）的验收包含「--list 含 TestCodeSourceDisplay」与「TestCodeSourceDisplay 独立进程过」，tasks.md:27（4.2）却写「编译验证（最后）：python build.py --config Debug 失败修到成功；成功后复跑 4.1 读数不变」。按清单顺序执行时，4.1 发生在最终构建之前：能跑通的前提是此前某个中间构建恰好包含 3.1 新加的用例与 2.x 全部改动，工件没有任何一条任务要求「4.1 之前先做一次完整构建」。若中间构建早于 3.1（例如 2.3 验收时构建过），4.1 的第一条断言 `--list` 就直接红；若在 3.1 之后构建过、但 4.2 又修了代码，则 4.1 的读数来自旧二进制，而 4.2 只说「复跑读数不变」——两次读数来自不同二进制这件事不会被记录，回归证据的归因是模糊的。更一般地，4.1 用「现有 22 用例与归档基线零差异」来证明无回归，却没有写清被测二进制是哪次构建的产物（基线 JSON 里也没有可对应的版本/哈希字段），这使「零差异」可以在旧产物上成立。",
+  "evidence": "命令 1：`Select-String -Path 'openspec/changes/editor-code-source-display/tasks.md' -Pattern 'TestCodeSourceDisplay 独立进程过','编译验证（最后）','复跑 4.1'` → `tasks.md:26`（4.1：……TestCodeSourceDisplay 独立进程过；……--list/docs/testing.md 同步）、`tasks.md:27`（4.2 编译验证（最后）：python build.py --config Debug 失败修到成功；成功后复跑 4.1 读数不变）。命令 2：`Select-String -Path 'openspec/changes/editor-code-source-display/tasks.md' -Pattern '构建过'` → 只出现在 1.1/1.2/2.1/2.2/2.3 的单条验收里（逐任务构建），没有 4.1 前置构建。命令 3：`Select-String -Path 'openspec/changes/archive/2026-11-25-source-importers-png-obj/evidence/4.1-全量-vulkan.json' -Pattern 'commit|build|version'` → 无命中（基线 JSON 只有 name/status 等，无法对到某次构建）。",
+  "suggestion": "把顺序改成「构建 → 回归」：4.1 之前增加一条“最终构建”任务（或把 4.2 提到 4.1 前），并让 4.1 的每份证据记录被测二进制路径 + 构建时间/哈希；4.2 的「复跑」改成「用同一二进制复跑」或删掉重复。另把 `--list` 的期望条数写死（当前 25 条 + 新增 1 条 = 26）并让 docs/testing.md 的清单同步以这个数为验收，而不是只写「同步」。"
+}

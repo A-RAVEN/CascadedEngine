@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-006",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:52「约定假定 shLib←CAResources/Shaders 全部 .slang，与 ShaderImporter 扫描根一致」；design.md:34「源根默认：shader＝`CAResources/Shaders`」",
+  "claim": "「CAResources/Shaders 与 ShaderImporter 扫描根一致」不成立：导入器的扫描根是 CAResources（上一级），不是 CAResources/Shaders。ShaderImporter_Vulkan.cpp:310 读 GetScanSourceDirectory()，:336 用 recursive_directory_iterator，:341 只收 .slang；Vulkan 后端在找不到时把回退根设成 p/「CAResources」（RenderBackend_Vulkan.cpp:210）；测试管线的扫描根同样是 (rootPath/「CAResources」)（Main.cpp:11850）。今天 16 份 .slang 全部在 CAResources/Shaders 下、Shaders 之外 0 份，所以文件集合恰好相同；但这不是「扫描根一致」——任何放到 CAResources/Images 或 CAResources/Models 的 .slang 会被编译进 shLib，而按 design 只扫 CAResources/Shaders 的提供者会静默漏掉它。",
+  "evidence": "证据-溯源-006.md：CAResources 顶层（Images/Models/Shaders）、16 份 .slang 全在 Shaders 下且外部 0 份、导入器根与回退根的逐字引文、测试管线赋值行。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-002",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "面③（源根与 path 基准）：生效规范 :16 要求「nodeId MUST = path = 相对资源根路径」；新能力规范 :19/:33 要求源条目「path/nodeId=相对工程根源路径」，design :30 还举例 `CAResources/Shaders/Test/TestSimpleTriangle.slang`。资源根是仓库根 CAAssets（CSharpHost/README:121），同一个 .slang 相对资源根应是 `../CAResources/Shaders/...`，两个基准不可能同时成立；本 change 只 MODIFY 了显示提供者要求，没有 MODIFY :16。工程根的取得也在三处不一致：design :34 写「资源根的上级约定或 env CASCADED_EDITOR_PROJECT_ROOT」，tasks :17 只写「工程根 env CASCADED_EDITOR_PROJECT_ROOT」（不写默认推导），新能力规范全文零处提 CASCADED_EDITOR_PROJECT_ROOT、也不定义「工程根」——规范把 path 定义在一个它没有定义的概念上，第三方无法独立实现。",
+  "location": "openspec/specs/editor-asset-browser/spec.md:16「nodeId MUST = path = 相对资源根路径」；openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md:19「path/nodeId=相对工程根源路径」与 :33「path/nodeId=相对工程根源路径」；openspec/changes/editor-code-source-display/design.md:30「path 用相对工程根的源路径（如 `CAResources/Shaders/Test/TestSimpleTriangle.slang`、`Scripting/Managed/Host.cs`）」、:34「工程根取资源根的上级约定或 env `CASCADED_EDITOR_PROJECT_ROOT`」；openspec/changes/editor-code-source-display/tasks.md:17「源根 env + 工程根 env CASCADED_EDITOR_PROJECT_ROOT」；CSharpHost/README.md:121「仓库根 `CAAssets`」",
+  "evidence_ref": "证据-一致-002.md",
+  "suggested_fix": "在新能力规范里把 path 基准写成可执行的定义：资源根内文件沿用「nodeId=path=相对资源根路径」；源文件条目明确「nodeId=path=相对工程根路径（以 CAResources/ 或 Scripting/ 开头）」，并同时 MODIFY editor-asset-browser :16，给两类条目各一条判据（或改用互不冲突的 nodeId 命名空间）。工程根在规范里写全：默认取资源根的上一级（资源根是 <工程根>/CAAssets），env CASCADED_EDITOR_PROJECT_ROOT 覆盖且优先；tasks 2.3 补上默认推导这条实现与断言（不设 env 时也能算出工程根），tasks 3.1 加一个「只设资源根、不设工程根 env」的用例。"
+}

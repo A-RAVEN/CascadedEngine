@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-010",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md；tasks.md",
+  "anchor": "design.md:34「源根不存在/空 → 提供者产空条目列表（不报错，浏览器不该整体失败，照 editor-asset-browser 未知扩展名落 file 的容错）」；spec.md:26-29「WHEN 源根不存在或无 .slang THEN 提供者 MUST 产空列表（list-assets ok=true，源条目空），MUST NOT 报错或整体失败」；design.md:28「Describe(shLib 上下文) **不产 shLib 条目**」",
+  "claim": "这是三件静默降级叠在一起：① 程序集条目被无条件隐去；② 源根不存在/为空时只回空列表，ok=true、无错误、无标记；③ 没有恢复路径（不提示实际扫描了哪个根、不提示该根不存在，也不给改法）。AGENTS §9 对静默降级的要求是「有没有标记、标记里有没有说清略去了什么、调用方能不能取回完整内容」，这里三件全缺：源根配错（或发布包只有 bin/ 没有 CAResources 与 Scripting）时，用户看到的是「这个程序集没有代码」而不是「源根找不到，程序集已被隐藏」，原本能在浏览器里看到 shLib/dll 的最后线索也被 MUST NOT 显示掉。design 引用的「未知扩展名落 file」容错不适用：那条仍然把文件列出来，这里是把整个资产从列表里拿掉。验收 3.1 的「源根空 → 源条目空（不报错）」把这种降级写成了必须通过的场景，红态反而保护了缺陷。",
+  "evidence": "证据-溯源-010.md：design.md:28/:34、spec.md:26-29 逐字引文；EditorService 现有失败通道（E_ASSET_ROOT）与空态判据的对照；AGENTS §9 静默降级三条原文；tasks 3.1 的红态描述。"
+}

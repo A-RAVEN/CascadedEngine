@@ -5979,42 +5979,28 @@ void TestEditorWindowPanel(TestContext& ctx)
 // 同一进程里不能共存。所以本用例**不进全量同进程顺序跑**（`--list` 仍列 23 行），只按
 // `GPUBackendTester.exe --test TestEditorAssetBrowser` 独立进程跑。
 //
-// 覆盖（tasks 1.2 / 1.3 / 2.1 / 2.2 / 2.3 / 2.4 / 4.1）：
-//   ① 第一次 list-assets：三条预置文件逐条七项（path / nodeId / sizeBytes / kind / modifiedUtc /
-//      registered / children）与**写死期望**一致；registered 真值与假值都出现；未知扩展名落 kind=file。
+// 覆盖（tasks 1.2 / 1.3 / 2.1 / 2.2 / 2.3 / 2.4 / 4.1 / 5.4）：
+//   ① 第一次 list-assets：三条预置文件逐条两项（path / kind）与**写死期望**一致；条目**只有这两个字段**
+//      （出现 sizeBytes/modifiedUtc/registered/children/nodeId 任一就判红）；未知扩展名落 kind=file。
 //   ② 刷新可见新增：写一个新文件后再枚举，条目 +1，且广播 assets-changed(fields 只有 added=1/removed=0、
 //      不带 objectId)。
 //   ③ 空根：目录存在但无文件 ⇒ ok=true 且 "assets":[]（合法空态，不是错误）。
 //   ④ 失败面：根非法 / 目录不存在 / 根空串 / 门面未绑（CASCADED_EDITOR_SELFTEST=no-facade）各回
 //      E_ASSET_ROOT，且**每个 requestId 都等到了 result**（10 秒内有结果 ⇒ 没有挂起）；清掉自检开关后
 //      恢复 ok。
-//   ⑤ 线程边界运行期归因：list-assets 执行那一帧的读数 cmdCalls 增量 = 1（GetResourceRootPath）+
-//      N（每文件一次 HasResource），lastCmd=list-assets、mode=main-thread ⇒ 门面调用都在主线程命令上下文。
+//   ⑤ 线程边界运行期归因：list-assets 执行那一帧的读数 cmdCalls 增量 = 1（只取一次 GetResourceRootPath；
+//      条目不再算任何固定元数据），lastCmd=list-assets、mode=main-thread ⇒ 门面调用都在主线程命令上下文。
 //
 // 红态怎么构造（每条判据都能失败）：
-//   · 枚举漏文件 / 大小或种类映射错 ⇒ ① 的逐项期望不符；
+//   · 枚举漏文件 / 种类映射错 ⇒ ① 的逐项期望不符；
+//   · 提供者多产固定字段 ⇒ ① 的「只有 path+kind」检测红；
 //   · 不广播 assets-changed ⇒ ② 收不到事件（或字段不是 added=1/removed=0）；
 //   · 空目录当错误回 ⇒ ③ 的 ok=true 断言红；
 //   · 枚举异常穿出到 Host.Tick 外层 catch ⇒ ④ 等不到该 requestId 的 result（10 秒超时）并让宿主
 //     LastError 变脏（收尾断言）；
-//   · 门面调用不 NoteNativeCall ⇒ ⑤ 的 cmdCalls 不等于 1+N。
+//   · 门面调用不 NoteNativeCall ⇒ ⑤ 的 cmdCalls 不等于 1。
 namespace
 {
-	// 一个最小资源：只为让"已注册"这一列有真值 —— 注册表按相对路径登记它，文件由用例写到同一相对路径。
-	class AssetBrowserProbeResource final : public resource_management::IResource
-	{
-	public:
-		void Serialize(ca_io::WBatch* writer) override { writer->SubmitAndWait(); }
-		void Deserialize(ca_io::IOBatch*) override {}
-	};
-
-	class AssetBrowserProbeFactory final : public resource_management::IResourceFactory
-	{
-	public:
-		castl::string GetResourceType() const override { return "AssetBrowserProbe"; }
-		resource_management::IResource* Create() override { return new AssetBrowserProbeResource(); }
-	};
-
 	// 把一个码点按 UTF-8 追加（`\uXXXX` 解码后的落盘形态；与 C# 侧写出的 UTF-8 逐字节可比）。
 	void AppendUtf8CodePoint(std::string& out, unsigned int codePoint)
 	{
@@ -6265,7 +6251,7 @@ namespace
 		return objects;
 	}
 
-	// 按 path 找条目对象（v1 nodeId = path）。
+	// 按 path 找条目对象（条目只有 path + kind，path 同时是稳定标识）。
 	bool FindAssetObject(std::vector<std::string> const& objects, std::string const& path, std::string& out)
 	{
 		for (std::string const& object : objects)
@@ -6280,38 +6266,20 @@ namespace
 		return false;
 	}
 
-	// 把文件的"最后写入时间（UTC）"钉到一个已知值：期望的 modifiedUtc 才能写死成 ISO 8601 字符串，
-	// 而不是拿被测物自己的读数当期望（那样判据永真）。
-	bool SetFileUtcModified(std::filesystem::path const& path, WORD year, WORD month, WORD day, WORD hour,
-		WORD minute, WORD second, std::string& error)
+	// 条目只允许 path + kind 两个字段（PROTOCOL.md 2.6；2026-11-25 用户裁定：没要求过的字段=幻想）。
+	// 出现任何别的键就点名返回 false。
+	bool JsonEntryHasOnlyPathAndKind(std::string const& entry, std::string& offender)
 	{
-		SYSTEMTIME utc{};
-		utc.wYear = year;
-		utc.wMonth = month;
-		utc.wDay = day;
-		utc.wHour = hour;
-		utc.wMinute = minute;
-		utc.wSecond = second;
-		utc.wMilliseconds = 0;
-		FILETIME fileTime{};
-		if (::SystemTimeToFileTime(&utc, &fileTime) == FALSE)
+		static char const* const kForbiddenKeys[] = { "sizeBytes", "modifiedUtc", "registered", "children",
+			                                          "nodeId" };
+		for (char const* key : kForbiddenKeys)
 		{
-			error = "SystemTimeToFileTime 失败：" + std::to_string(::GetLastError());
-			return false;
-		}
-		HANDLE handle = ::CreateFileW(path.wstring().c_str(), FILE_WRITE_ATTRIBUTES,
-			FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-		if (handle == INVALID_HANDLE_VALUE)
-		{
-			error = "CreateFileW(FILE_WRITE_ATTRIBUTES) 失败：" + std::to_string(::GetLastError());
-			return false;
-		}
-		const BOOL changed = ::SetFileTime(handle, nullptr, nullptr, &fileTime);
-		::CloseHandle(handle);
-		if (changed == FALSE)
-		{
-			error = "SetFileTime 失败：" + std::to_string(::GetLastError());
-			return false;
+			const std::string needle = std::string("\"") + key + "\":";
+			if (entry.find(needle) != std::string::npos)
+			{
+				offender = key;
+				return false;
+			}
 		}
 		return true;
 	}
@@ -6390,32 +6358,21 @@ void TestEditorAssetBrowser(TestContext& ctx)
 	std::filesystem::create_directories(root / "Docs", filesystemError);
 	std::filesystem::create_directories(emptyRoot, filesystemError);
 
-	// 期望值全部写死在这里（不从被测物推导）：相对路径 / 字节数 / 种类 / 修改时间（同时用来钉文件时间）/
-	// 是否注册。三个文件覆盖 .tex / .shLib / 未知扩展名（.txt → file），且是"已注册 + 未注册"混合。
+	// 期望值全部写死在这里（不从被测物推导）：相对路径 + 种类（条目只有 path + kind 两个字段）。
+	// 三个文件覆盖 .tex / .shLib / 未知扩展名（.txt → file）。
 	struct PresetFile
 	{
 		char const* relative;
-		int sizeBytes;
 		char const* kind;
-		char const* modifiedUtc;
-		WORD year;
-		WORD month;
-		WORD day;
-		WORD hour;
-		WORD minute;
-		WORD second;
-		bool registered;
 	};
 	const PresetFile presets[] = {
-		{ "Assets/Registered.tex", 142, "texture", "2024-03-04T05:06:07.0000000Z", 2024, 3, 4, 5, 6, 7, true },
-		{ "ShaderLibraries/Browser.shLib", 377, "shader-library", "2024-02-01T12:34:56.0000000Z", 2024, 2, 1, 12,
-		  34, 56, false },
-		{ "Docs/Notes.txt", 21, "file", "2023-12-31T23:59:58.0000000Z", 2023, 12, 31, 23, 59, 58, false },
+		{ "Assets/Registered.tex", "texture" },
+		{ "ShaderLibraries/Browser.shLib", "shader-library" },
+		{ "Docs/Notes.txt", "file" },
 	};
 	const int presetCount = static_cast<int>(sizeof(presets) / sizeof(presets[0]));
 
 	{
-		std::string fixtureError;
 		for (PresetFile const& preset : presets)
 		{
 			const std::filesystem::path fullPath = root / preset.relative;
@@ -6424,34 +6381,15 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			{
 				fail("E_ASSETBROWSER_FIXTURE", "写夹具文件失败：" + fullPath.string());
 			}
-			std::string bytes(static_cast<std::size_t>(preset.sizeBytes), 'x');
-			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+			// 内容不参与断言（条目不再有大小/时间字段），只要求文件真实存在、能被枚举到。
+			const char payload[8] = { 'f', 'i', 'x', 't', 'u', 'r', 'e', '\n' };
+			out.write(payload, static_cast<std::streamsize>(sizeof(payload)));
 			out.close();
-			if (!SetFileUtcModified(fullPath, preset.year, preset.month, preset.day, preset.hour, preset.minute,
-				preset.second, fixtureError))
-			{
-				fail("E_ASSETBROWSER_FIXTURE", "钉夹具修改时间失败：" + fixtureError);
-			}
 		}
 	}
 
-	// 资源根 = 临时目录；"已注册"夹具按同一相对路径登记进资源表（文件与注册各一半，registered 才有真值与假值）。
+	// 资源根 = 临时目录（条目不再有注册状态字段，注册表只用来设根）。
 	ctx.pResourceManagingSystem->SetResourceRootPath(root.generic_string());
-	ctx.pResourceManagingSystem->RegisterFactory("AssetBrowserProbe",
-		castl::shared_ptr<resource_management::IResourceFactory>(new AssetBrowserProbeFactory(),
-			[](resource_management::IResourceFactory* released) { delete released; }));
-	if (!ctx.pResourceManagingSystem->CreateResource("AssetBrowserProbe", "Assets/Registered.tex"))
-	{
-		fail("E_ASSETBROWSER_FIXTURE", "已注册夹具没有登记进资源表（CreateResource 返回空）");
-	}
-	if (!ctx.pResourceManagingSystem->HasResource("Assets/Registered.tex"))
-	{
-		fail("E_ASSETBROWSER_FIXTURE", "预置夹具的 HasResource 不是真（registered 列没有真值可判）");
-	}
-	if (ctx.pResourceManagingSystem->HasResource("ShaderLibraries/Browser.shLib"))
-	{
-		fail("E_ASSETBROWSER_FIXTURE", "未注册夹具的 HasResource 不是假（registered 列没有假值可判）");
-	}
 
 	struct AssetBrowserEnvGuard
 	{
@@ -6465,10 +6403,11 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+			// editor-code-source-display：本用例关源显示（见下面设置处说明），收尾一并清掉。
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", nullptr);
 			if (context != nullptr && context->pResourceManagingSystem != nullptr)
 			{
-				context->pResourceManagingSystem->ReleaseResource("Assets/Registered.tex");
-				context->pResourceManagingSystem->UnregisterFactory("AssetBrowserProbe");
 				context->pResourceManagingSystem->SetResourceRootPath("");
 			}
 			std::error_code ignored;
@@ -6485,6 +6424,13 @@ void TestEditorAssetBrowser(TestContext& ctx)
 	// 免得用例的失败原因指向环境而不是被测物。
 	::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
 	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	// editor-code-source-display：本用例断言的是**数据型**条目与真实文件逐条一致（三条预置文件、两项读数
+	// path+kind），
+	// 源显示开着会额外引入源条目（且本用例的资产根在 %TEMP% 下、工程根 = 其上级，没有 Scripting/ 源根 →
+	// list-assets 会按 D5 显式报错）。MODIFIED 的 editor-asset-browser 规范允许数据型场景「源显示 off 或
+	// 用探针 shLib 落默认」，这里取 off；探针 shLib 落默认的那条判据由 TestCodeSourceDisplay（显示 on）覆盖。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", "off");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", nullptr);
 	const char* readingsPath = "test_output/asset_browser_readings.txt";
 	std::filesystem::create_directories("test_output");
 	{
@@ -6670,7 +6616,7 @@ void TestEditorAssetBrowser(TestContext& ctx)
 		}
 	};
 
-	// ---- ① 第一次枚举：三条预置文件逐条七项断言 ----
+	// ---- ① 第一次枚举：三条预置文件逐条两项断言（path + kind；条目只有这两个字段） ----
 	int firstRequest = 0;
 	{
 		std::string result;
@@ -6687,8 +6633,6 @@ void TestEditorAssetBrowser(TestContext& ctx)
 				static_cast<int>(entries.size()), presetCount, result.c_str());
 			fail("E_ASSETBROWSER_LIST", detail);
 		}
-		bool sawRegisteredTrue = false;
-		bool sawRegisteredFalse = false;
 		for (PresetFile const& preset : presets)
 		{
 			std::string entry;
@@ -6697,32 +6641,19 @@ void TestEditorAssetBrowser(TestContext& ctx)
 				fail("E_ASSETBROWSER_LIST", std::string("结果里没有预置文件 ") + preset.relative + "；结果：" + result);
 			}
 			requireField(entry, "path", preset.relative);
-			requireField(entry, "nodeId", preset.relative); // v1：nodeId = path = 相对资源根的正斜杠路径
 			requireField(entry, "kind", preset.kind);
-			requireField(entry, "sizeBytes", std::to_string(preset.sizeBytes));
-			requireField(entry, "modifiedUtc", preset.modifiedUtc);
-			requireField(entry, "registered", preset.registered ? "true" : "false");
-			requireField(entry, "children", "[]"); // v1：一文件一条目，children 恒空
-			if (preset.registered)
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(entry, offender))
 			{
-				sawRegisteredTrue = true;
+				fail("E_ASSETBROWSER_FIELDS", "条目多了没要求过的字段 \"" + offender + "\"：" + entry);
 			}
-			else
-			{
-				sawRegisteredFalse = true;
-			}
-			CA_LOG("[资产浏览器 测试] 条目：path={} kind={} size={} modified={} registered={}", preset.relative,
-			       preset.kind, preset.sizeBytes, preset.modifiedUtc, preset.registered ? "true" : "false");
+			CA_LOG("[资产浏览器 测试] 条目：path={} kind={}", preset.relative, preset.kind);
 		}
-		if (!sawRegisteredTrue || !sawRegisteredFalse)
-		{
-			fail("E_ASSETBROWSER_REGISTERED", "registered 的真值与假值没有同时出现（恒真/恒假实现也能过的判据不合格）");
-		}
-		CA_LOG("[资产浏览器 测试] ① 第一次枚举：{} 条预置文件七项全对（含 registered 真/假与未知扩展名 kind=file）",
+		CA_LOG("[资产浏览器 测试] ① 第一次枚举：{} 条预置文件两项全对（path + kind；未知扩展名 kind=file）",
 		       presetCount);
 	}
 
-	// ---- ⑤ 线程边界运行期归因：cmdCalls = 1（GetResourceRootPath）+ N（每文件一次 HasResource）----
+	// ---- ⑤ 线程边界运行期归因：cmdCalls = 1（只取一次资源根；条目不再算注册状态）----
 	{
 		// 同一次 Tick 里可能同时 drain 到面板前端自己发的 list-assets —— 读数行只记"最后执行的那条
 		// 命令"，那样本请求 id 那一帧就看不到。这不是产品缺陷，所以判据最多重试 3 次，直到读数文件里
@@ -6753,7 +6684,7 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			fail("E_ASSETBROWSER_CMDCALLS",
 				"三次 list-assets 都没有在读数文件里留下可归因的那一帧（cmdRequest 一直被别的命令覆盖）");
 		}
-		const int64_t expectedCalls = 1 + presetCount;
+		const int64_t expectedCalls = 1;
 		if (lastCmd != "list-assets")
 		{
 			fail("E_ASSETBROWSER_CMDCALLS", "读数行 lastCmd=" + lastCmd + "，期望 list-assets");
@@ -6766,12 +6697,12 @@ void TestEditorAssetBrowser(TestContext& ctx)
 		{
 			char detail[256] = {};
 			std::snprintf(detail, sizeof(detail),
-				"list-assets 期间门面调用计数 %lld ≠ 1（GetResourceRootPath）+ %d（每文件 HasResource）",
-				static_cast<long long>(calls), presetCount);
+				"list-assets 期间门面调用计数 %lld ≠ %lld（条目只有 path+kind，只取一次 GetResourceRootPath）",
+				static_cast<long long>(calls), static_cast<long long>(expectedCalls));
 			fail("E_ASSETBROWSER_CMDCALLS", detail);
 		}
-		CA_LOG("[资产浏览器 测试] ⑤ 线程归因：requestId={} 那一帧 cmdCalls={}（= 1 + {}），mode=main-thread",
-		       requestId, static_cast<long long>(calls), presetCount);
+		CA_LOG("[资产浏览器 测试] ⑤ 线程归因：requestId={} 那一帧 cmdCalls={}（= 1），mode=main-thread", requestId,
+		       static_cast<long long>(calls));
 	}
 
 	// ---- ② 刷新可见新增 + assets-changed ----
@@ -6789,10 +6720,8 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			fail("E_ASSETBROWSER_REFRESH", "无变化枚举的条目数变了：" + settleResult);
 		}
 
-		// 新增一个文件（写死：55 字节 / .mesh → mesh / 未注册 / 修改时间钉死）。
+		// 新增一个文件（写死：.mesh → mesh；条目只有 path + kind，不钉大小/时间）。
 		const std::filesystem::path addedRelative = "Added/Extra.mesh";
-		const std::string addedExpectedUtc = "2024-05-06T07:08:09.0000000Z";
-		const int addedSizeBytes = 55;
 		std::filesystem::create_directories(root / "Added", filesystemError);
 		{
 			const std::filesystem::path fullPath = root / addedRelative;
@@ -6801,14 +6730,9 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			{
 				fail("E_ASSETBROWSER_REFRESH", "写新增文件失败：" + fullPath.string());
 			}
-			std::string bytes(static_cast<std::size_t>(addedSizeBytes), 'y');
-			out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+			const char payload[5] = { 'a', 'd', 'd', 'e', 'd' };
+			out.write(payload, static_cast<std::streamsize>(sizeof(payload)));
 			out.close();
-			std::string fixtureError;
-			if (!SetFileUtcModified(fullPath, 2024, 5, 6, 7, 8, 9, fixtureError))
-			{
-				fail("E_ASSETBROWSER_REFRESH", "钉新增文件修改时间失败：" + fixtureError);
-			}
 		}
 
 		events.clear();
@@ -6832,12 +6756,14 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			fail("E_ASSETBROWSER_REFRESH", "新增文件没有出现在第二次枚举里：" + result);
 		}
 		requireField(addedEntry, "path", addedRelative.generic_string());
-		requireField(addedEntry, "nodeId", addedRelative.generic_string());
 		requireField(addedEntry, "kind", "mesh");
-		requireField(addedEntry, "sizeBytes", std::to_string(addedSizeBytes));
-		requireField(addedEntry, "modifiedUtc", addedExpectedUtc);
-		requireField(addedEntry, "registered", "false");
-		requireField(addedEntry, "children", "[]");
+		{
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(addedEntry, offender))
+			{
+				fail("E_ASSETBROWSER_FIELDS", "新增条目多了没要求过的字段 \"" + offender + "\"：" + addedEntry);
+			}
+		}
 
 		// 事件：本次枚举相对上次快照只多了一个，必须收到恰好一条 assets-changed({added:1,removed:0})，
 		// 且**不带 objectId**（PROTOCOL.md 2.5）。
@@ -6985,7 +6911,7 @@ void TestEditorAssetBrowser(TestContext& ctx)
 			pScriptHost->LastError());
 		fail("E_ASSETBROWSER_HOST_ERROR", detail);
 	}
-	CA_LOG("TestEditorAssetBrowser 通过：① 七项逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + "
+	CA_LOG("TestEditorAssetBrowser 通过：① 两项（path+kind）逐条一致 + ② 刷新新增与 assets-changed + ③ 空根空数组 + "
 	       "④ 四种根不可用各 E_ASSET_ROOT 不挂起 + ⑤ 门面调用主线程归因 全部满足");
 }
 
@@ -9718,7 +9644,7 @@ void TestCSharpAssets(TestContext& ctx)
 //      含四边面的立方体 OBJ（6 个四边面 → 12 个三角、含一个未被引用顶点）→ 临时根**镜像路径**落盘；
 //      C++ 读 ② 文件裸字节 == 写死预期序列化字节（CATX 头 28 + 像素 / CAMH 头 32 + 顶点与索引）；
 //      不用 Texture2D.Parse / Mesh.Parse —— 它们是 internal，C++ 调不到（design D6 修订）；HasResource 真。
-//   ② 资产浏览器 list-assets：写死 path / kind=texture|mesh / registered=true / sizeBytes 条目。
+//   ② 资产浏览器 list-assets：写死 path / kind=texture|mesh 条目（条目只有两字段）。
 //   ③ 重导入：第二轮是新对象（第一轮句柄 ReleaseImpl == 1001）+ 落盘字节 == 写死预期。
 //   ④ 源变动重建：改源 PNG/OBJ 内容重扫 → ② 产物 == 新源对应字节，且与改前不同。
 //   ⑤ 红态：坏 PNG（签名/截断/CRC32/adler32/灰度/灰度+alpha/调色板/16 位/Adam7）与坏 OBJ
@@ -10276,6 +10202,8 @@ void TestSourceImporters(TestContext& ctx)
 			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_SELFTEST", nullptr);
 			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_CAPTURE", nullptr);
@@ -10626,7 +10554,7 @@ void TestSourceImporters(TestContext& ctx)
 		       shaderLibraryPath);
 	}
 
-	// ---- ② 资产浏览器 list-assets：写死 path / kind / registered / sizeBytes ----
+	// ---- ② 资产浏览器 list-assets：写死 path / kind（条目只有两字段）----
 	{
 		const int editorPort = 18394; // 避开既有编辑器用例的 18390/18391/18392/18393
 		const char* editorReadingsPath = "test_output/source_importers_editor_readings.txt";
@@ -10635,6 +10563,10 @@ void TestSourceImporters(TestContext& ctx)
 		::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
 		::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", std::to_string(editorPort).c_str());
 		::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", editorReadingsPath);
+		// editor-code-source-display：本用例的资产是数据型（texture/mesh），源显示开着的源条目会混进同一个
+		// 枚举（且本用例的资产根在 %TEMP% 下、没有 Scripting/ 源根 → list-assets 会按 D5 显式报错）。数据型
+		// 断言不关心源显示，这里关掉；代码型源显示的判据由 TestCodeSourceDisplay（显示 on）覆盖。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", "off");
 		// 3.2 视觉验收的抓窗钩子（test 侧）：主循环设 CASCADED_SOURCE_IMPORTERS_CAPTURE=<png 路径> 时，
 		// 映射到编辑器既有的 dock 抓窗自检钩子 `CASCADED_EDITOR_SELFTEST=capture-dock=<png>`
 		//（EditorWindow 在 dock 控制器就绪后每 30 帧用 CapturePreviewAsync 覆盖落盘，不置前、不移动窗口）。
@@ -10806,9 +10738,11 @@ void TestSourceImporters(TestContext& ctx)
 			}
 			requireField(entry, "path", fixture.relativeAsset);
 			requireField(entry, "kind", "texture");
-			requireField(entry, "registered", "true");
-			requireField(entry, "sizeBytes", std::to_string(fixture.expected.size()));
-			requireField(entry, "children", "[]");
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(entry, offender))
+			{
+				fail("E_SRCIMPORT_EDITOR_FIELD", "条目多了没要求过的字段 \"" + offender + "\"：" + entry);
+			}
 		}
 		{
 			std::string entry;
@@ -10818,11 +10752,14 @@ void TestSourceImporters(TestContext& ctx)
 			}
 			requireField(entry, "path", meshPath);
 			requireField(entry, "kind", "mesh");
-			requireField(entry, "registered", "true");
-			requireField(entry, "sizeBytes", std::to_string(meshExpected.size()));
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(entry, offender))
+			{
+				fail("E_SRCIMPORT_EDITOR_FIELD", "条目多了没要求过的字段 \"" + offender + "\"：" + entry);
+			}
 		}
-		CA_LOG("[TestSourceImporters ②] 资产浏览器 list-assets：6 条 texture + 1 条 mesh 的 path/kind/"
-		       "registered/sizeBytes 全对");
+		CA_LOG("[TestSourceImporters ②] 资产浏览器 list-assets：6 条 texture + 1 条 mesh 的 path/kind 全对"
+		       "（条目只有两字段）");
 
 		// 3.2 视觉验收（test 侧支撑）：设了 CASCADED_SOURCE_IMPORTERS_CAPTURE 就再推 ~3 秒的帧，
 		// 让 dock 页面把 list-assets 的结果画出来、并让抓窗钩子（每 30 帧一张）覆盖落盘几张；
@@ -11054,6 +10991,704 @@ void TestSourceImporters(TestContext& ctx)
 	       "AddImporter → ScanSourceDirectory）→ 五滤波 + 多 IDAT + RGB + 四边面 OBJ 的镜像路径落盘与裸字节"
 	       "对拍 → 资产浏览器 list-assets 条目 → 重导入新对象（旧句柄 1001）→ 源变动重建 → 13 个红态读数点名"
 	       " → 真实 CAAssets 字节不变");
+}
+
+// ---- TestCodeSourceDisplay（editor-code-source-display 3.1，第 26 用例）----
+//
+// **独立进程用例**（与 TestEditorAssetBrowser / TestSourceImporters 同一理由：编辑器服务是进程级一次性
+// 状态机；本用例还要换资源根 / 工程根）：`GPUBackendTester.exe --test TestCodeSourceDisplay`。
+// 进 `--list`，**不进**全量同进程顺序跑（全量是 Main.cpp 硬编码的那 22 条）。
+//
+// 覆盖（tasks 1.1 / 1.2 / 2.1 / 2.2 / 2.3 / 3.1 / 5.4）：
+//   ⓪ 代码型隐程序集显源夹具：临时工程根预置两个**写死源路径串**的 shLib（Vulkan / D3D12 两种序列化布局）+
+//      对应 .slang + 手写 .cs（含 obj 干扰）+ 一个**路径不同**的探针 shLib（应落默认提供者仍显）；
+//   ① list-assets 断言（期望全部写死）：shLib/dll 条目不出现、源条目逐条 path（相对工程根）+ kind、
+//      条目**只有 path+kind 两字段**、源条目数写死值、两 shLib 去重无重复 path、缺源历史路径
+//      kind=shader-source-missing、obj 不出现、source-omitted 标记给出取回目录；
+//   ② 红态（同进程差分）：`CASCADED_EDITOR_SOURCE_DISPLAY=off` → 三个 shLib 全落默认提供者仍显、源条目 0 条；
+//      翻回 on 源条目恢复、shLib 又被隐去；
+//   ③ 红态：工程根没有 Scripting/ → list-assets 显式 `E_ASSET_ROOT` 并点名 C# 源根（不静默空列表）；恢复后 ok。
+//   ④ 3.2 抓窗（test 侧）：`CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE` 设了时映射 capture-dock；抓窗前用一次
+//      数据型增删把 dock 从 ③ 的红态拉回 8 条源列表，再推约 3 秒帧落盘 PNG 并断言非空（画面内容由
+//      主循环 read_image 核对）。
+//
+// 红态怎么构造（每条判据都能失败）：
+//   · 不读 shLib 字节提源路径 ⇒ ① 的源条目全缺（条数是写死值，缺一条就红）；
+//   · 提供者产 shLib 自身条目 ⇒ ① 的「shLib 不出现」红；
+//   · 两 shLib 不去重 ⇒ ① 的 path 重复检测红；
+//   · 缺源路径静默跳过 ⇒ ① 的 Missing.slang 条目缺失；
+//   · 不排除 obj/ ⇒ ① 的 obj 路径出现；
+//   · off 开关不生效 ⇒ ② 的两个钉死 shLib 条目不出现；
+//   · 源根非法静默空列表 ⇒ ③ 收到 ok=true 而不是 E_ASSET_ROOT。
+namespace
+{
+	// shLib 字节夹具里的一个字符串：uint64 长度 + ASCII 字节（CodeGen 的字符串字节契约、本机字节序）。
+	void AppendFixturePathString(std::vector<unsigned char>& out, std::string const& text)
+	{
+		AppendLe64(out, static_cast<uint64_t>(text.size()));
+		out.insert(out.end(), text.begin(), text.end());
+	}
+
+	// 写死源路径串的 shLib 夹具（照真实序列化布局，见 VulkanRenderBackendNew/D3D12RenderBackend 的
+	// ShaderLibrary.h）：`m_ShaderFiles` 是 ShaderLibrary 的第一个字段 —— uint64 条数，随后每条
+	// 「键（PathHash：uint64 长度 + ASCII）」+「`ShaderFileInfo.path`」（Vulkan 有值；D3D12 实测为空串）。
+	// 提取器只依赖「长度前缀 + 可打印 ASCII」与开头条数，两种布局各覆盖一条路径。
+	std::vector<unsigned char> BuildShaderLibraryFixture(std::vector<std::string> const& paths, bool writePathField)
+	{
+		std::vector<unsigned char> out;
+		AppendLe64(out, static_cast<uint64_t>(paths.size()));
+		for (std::string const& path : paths)
+		{
+			AppendFixturePathString(out, path);
+			if (writePathField)
+			{
+				AppendFixturePathString(out, path);
+			}
+			else
+			{
+				AppendLe64(out, 0u);
+			}
+			AppendLe64(out, 0u); // entryPointToShaderProgram 条数（其后字段提取器不读）
+		}
+		return out;
+	}
+
+	// 从 tester 自己的位置推导构建预设名（`<repo>/out/build/<preset>/bin/GPUBackendTester.exe`）：
+	// 生成绑定源的取回目录要用它 —— 期望值来自运行环境的结构，不是被测物吐出来的读数。
+	std::string BuildPresetFromExecutable()
+	{
+		char buffer[MAX_PATH] = {};
+		const DWORD written = ::GetModuleFileNameA(nullptr, buffer, MAX_PATH);
+		if (written == 0 || written >= MAX_PATH)
+		{
+			return std::string();
+		}
+		const std::filesystem::path exePath(buffer);
+		const std::filesystem::path bin = exePath.parent_path();
+		const std::filesystem::path preset = bin.parent_path();
+		if (bin.filename() != "bin" || preset.parent_path().filename() != "build" ||
+			preset.parent_path().parent_path().filename() != "out")
+		{
+			return std::string();
+		}
+		return preset.filename().string();
+	}
+}
+
+void TestCodeSourceDisplay(TestContext& ctx)
+{
+	auto fail = [](char const* code, std::string const& detail) {
+		std::snprintf(g_errorDetail, sizeof(g_errorDetail), "%s", detail.c_str());
+		CA_LOG("[TestCodeSourceDisplay 失败] {}", detail);
+		throw std::runtime_error(code);
+	};
+
+	auto* pScriptHost = ctx.pModuleManager->GetInstance<cs_script::IScriptHost>();
+	if (pScriptHost == nullptr)
+	{
+		fail("E_CODESRC_HOST", "IScriptHost 取不到（CSharpHost 模块没加载成功）");
+	}
+	if (!pScriptHost->IsAvailable())
+	{
+		fail("E_CODESRC_HOST", std::string("托管侧不可用：") + pScriptHost->LastError());
+	}
+	if (ctx.pResourceManagingSystem == nullptr)
+	{
+		fail("E_CODESRC_RESOURCE", "取不到 ResourceManagingSystem（资源模块没加载成功）");
+	}
+
+	// ---- ⓪ 临时工程根 / 资源根 / 写死夹具 ----
+	const std::string backend(ctx.backendName.c_str());
+	const std::filesystem::path workspace =
+		std::filesystem::temp_directory_path() / ("CascadedCodeSourceDisplay_" + backend);
+	const std::filesystem::path projectRoot = workspace / "project";
+	const std::filesystem::path assetRoot = projectRoot / "CAAssets";
+	const std::filesystem::path shaderRoot = projectRoot / "CAResources" / "Shaders";
+	const std::filesystem::path scriptManaged = projectRoot / "Scripting" / "Managed";
+	const std::filesystem::path noScriptingRoot = workspace / "no-scripting";
+	const std::string readingsPath = "test_output/code_source_display_readings.txt";
+	std::error_code filesystemError;
+	std::filesystem::remove_all(workspace, filesystemError);
+	std::filesystem::create_directories(assetRoot / "ShaderLibraries", filesystemError);
+	std::filesystem::create_directories(shaderRoot, filesystemError);
+	std::filesystem::create_directories(scriptManaged / "obj", filesystemError);
+	std::filesystem::create_directories(projectRoot / "Scripting" / "obj" / "Debug", filesystemError);
+	std::filesystem::create_directories(noScriptingRoot, filesystemError);
+	if (!std::filesystem::exists(assetRoot) || !std::filesystem::exists(shaderRoot) ||
+		!std::filesystem::exists(noScriptingRoot))
+	{
+		fail("E_CODESRC_FIXTURE", "临时工程根 / 资源根目录没建出来：" + workspace.string());
+	}
+
+	const std::string preset = BuildPresetFromExecutable();
+	if (preset.empty())
+	{
+		fail("E_CODESRC_FIXTURE", "推导不出构建预设名（tester 不在 <repo>/out/build/<preset>/bin 下）");
+	}
+	// 生成绑定源的取回目录（相对工程根）—— 由 editor 按程序集位置推导，期望值写死在测试侧。
+	const std::string omittedRelative = "out/build/" + preset + "/codegen/bindings";
+
+	// 写死源路径串：两个 shLib 有重叠（Alpha/Beta/Missing 两边都有 → 去重）+ Shared 只在 D3D12 侧；
+	// Missing 故意没有对应 .slang（缺源历史路径，kind=shader-source-missing，条目仍要产出）。
+	const std::vector<std::string> vulkanPaths = { "Shaders/Alpha", "Shaders/Beta", "Shaders/Missing" };
+	const std::vector<std::string> d3d12Paths = { "Shaders/Alpha", "Shaders/Beta", "Shaders/Missing",
+		"Shaders/Shared" };
+
+	struct FixtureFile
+	{
+		std::filesystem::path path;
+		std::vector<unsigned char> bytes;
+	};
+	auto fillBytes = [](std::size_t count, char value) {
+		return std::vector<unsigned char>(count, static_cast<unsigned char>(value));
+	};
+	const std::vector<FixtureFile> fixtureFiles = {
+		// pinned 路径的两个 shLib：一个按 Vulkan 布局（键 + 有值 path）、一个按 D3D12 布局（键 + 空 path）。
+		{ assetRoot / "VulkanShaderLibrary.shLib", BuildShaderLibraryFixture(vulkanPaths, true) },
+		{ assetRoot / "D3D12ShaderLibrary.shLib", BuildShaderLibraryFixture(d3d12Paths, false) },
+		// 路径不同的探针 shLib：精确绑定不命中 → 落默认提供者仍显（数据型行为不变）。
+		{ assetRoot / "ShaderLibraries" / "Browser.shLib", fillBytes(77, 'x') },
+		// 源文件：Alpha/Beta/Shared 有源；Missing 没有（缺源 kind 用）。
+		{ shaderRoot / "Alpha.slang", fillBytes(100, 'a') },
+		{ shaderRoot / "Beta.slang", fillBytes(200, 'b') },
+		{ shaderRoot / "Shared.slang", fillBytes(300, 'c') },
+		// 手写 C# 源 + 两个 obj 干扰（Scripting/Managed/obj 与 Scripting/obj：都要被排除）。
+		{ scriptManaged / "Host.cs", fillBytes(10, 'h') },
+		{ scriptManaged / "Tool.cs", fillBytes(20, 't') },
+		{ scriptManaged / "obj" / "Generated.cs", fillBytes(33, 'g') },
+		{ projectRoot / "Scripting" / "obj" / "Debug" / "Extra.cs", fillBytes(44, 'e') },
+	};
+	for (FixtureFile const& file : fixtureFiles)
+	{
+		if (!WriteWholeFileBytes(file.path, file.bytes))
+		{
+			fail("E_CODESRC_FIXTURE", "写夹具文件失败：" + file.path.string());
+		}
+	}
+
+	struct CodeSourceDisplayEnvGuard
+	{
+		TestContext* context = nullptr;
+		std::filesystem::path workspacePath;
+		~CodeSourceDisplayEnvGuard()
+		{
+			::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_SELFTEST", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_CAPTURE", nullptr);
+			::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+			if (context != nullptr && context->pResourceManagingSystem != nullptr)
+			{
+				context->pResourceManagingSystem->SetResourceRootPath("");
+			}
+			std::error_code ignored;
+			std::filesystem::remove_all(workspacePath, ignored);
+		}
+	} envGuard{ &ctx, workspace };
+
+	// 专用端口（避开既有编辑器用例的 18390 / 18391 / 18392 / 18393 / 18394）。
+	const int editorPort = 18395;
+
+	// 3.2 视觉验收的抓窗钩子（test 侧，照 TestSourceImporters 的 CASCADED_SOURCE_IMPORTERS_CAPTURE 先例）：
+	// 主循环设 CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE=<png 路径> 时，映射到编辑器既有的 dock 抓窗自检钩子
+	// `CASCADED_EDITOR_SELFTEST=capture-dock=<png>`（EditorWindow 在 dock 控制器就绪后每约 0.5 秒用
+	// CapturePreviewAsync 覆盖落盘，不置前、不移动窗口）。必须在编辑器启动（第一次 Tick 建窗）之前设好 ——
+	// 抓窗路径是 EditorWindow 构造时读的。路径按 Wide 读环境变量再按 Wide 写回：中文文件名
+	//（evidence/3.2-截图.png）不会被 ACP 转换弄坏。
+	std::wstring capturePathWide;
+	{
+		const DWORD needed = ::GetEnvironmentVariableW(L"CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE", nullptr, 0);
+		if (needed > 0)
+		{
+			std::wstring buffer(static_cast<size_t>(needed), L'\0');
+			const DWORD written = ::GetEnvironmentVariableW(L"CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE", buffer.data(),
+				needed);
+			if (written > 0 && written < needed)
+			{
+				buffer.resize(static_cast<size_t>(written));
+				capturePathWide = buffer;
+			}
+		}
+	}
+	const std::filesystem::path capturePath(capturePathWide);
+	const bool captureDock = !capturePathWide.empty();
+
+	::SetEnvironmentVariableA("CASCADED_EDITOR", "1");
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PORT", std::to_string(editorPort).c_str());
+	::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", projectRoot.string().c_str());
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", nullptr); // 默认 on
+	if (captureDock)
+	{
+		std::error_code captureError;
+		std::filesystem::remove(capturePath, captureError); // 先删旧图，避免把上一轮的图当本轮读数
+		const std::wstring selftest = L"capture-dock=" + capturePathWide;
+		::SetEnvironmentVariableW(L"CASCADED_EDITOR_SELFTEST", selftest.c_str());
+	}
+	else
+	{
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SELFTEST", nullptr);
+	}
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	// 外部遗留的原型门控必须清掉：SPIKE=web-render 会起单控制器原型窗（没有底部 dock）。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE", nullptr);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_SELFTEST", nullptr);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_SPIKE_CAPTURE", nullptr);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_WEBVIEW2_DATA", nullptr);
+	std::filesystem::create_directories("test_output", filesystemError);
+	std::filesystem::remove(readingsPath, filesystemError);
+	::SetEnvironmentVariableA("CASCADED_EDITOR_READINGS_FILE", readingsPath.c_str());
+	ctx.pResourceManagingSystem->SetResourceRootPath(assetRoot.generic_string());
+
+	// 编号 1 = 一个存活窗口（默认 IWindow 表面），编号 2 = 窗口系统：编辑器另建它自己的目标窗口。
+	auto newWindow = ctx.pWindowSystem->NewWindow(640, 480, "Code Source Display Test Host Window");
+	auto windowKeepAlive = newWindow.lock();
+	if (windowKeepAlive == nullptr)
+	{
+		fail("E_CODESRC_WINDOW", "IWindowSystem::NewWindow 返回了空弱引用");
+	}
+	pScriptHost->SetInterfaceInstance(1, kWindowInstanceName, windowKeepAlive.get());
+	pScriptHost->SetInterfaceInstance(2, kRealWindowSystemInstanceName, ctx.pWindowSystem);
+	pScriptHost->Tick(0.016);
+	ctx.pWindowSystem->UpdateSystem();
+	const std::string baselineError = pScriptHost->LastError();
+
+	HostProbeReadings editorReadings;
+	bool editorReady = false;
+	{
+		const auto startedAt = std::chrono::steady_clock::now();
+		int frames = 0;
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 40000.0)
+			{
+				break;
+			}
+			++frames;
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			if ((frames % 5) == 0 && ReadEditorReadings(readingsPath.c_str(), &editorReadings) &&
+				editorReadings.Get("objects") == "1" && editorReadings.I64("exec") > 0 &&
+				editorReadings.Get("controller") == "1" && editorReadings.Get("nav") == "1" &&
+				editorReadings.Get("dockController") == "1" && editorReadings.Get("dockNav") == "1")
+			{
+				editorReady = true;
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+	if (!editorReady)
+	{
+		ReadEditorReadings(readingsPath.c_str(), &editorReadings);
+		fail("E_CODESRC_START", "编辑器 40 秒内没有进入运行态：objects=" + editorReadings.Get("objects") +
+			" controller=" + editorReadings.Get("controller") + " dockController=" +
+			editorReadings.Get("dockController") + " error=" + editorReadings.Get("error") +
+			"；LastError=" + pScriptHost->LastError());
+	}
+	CA_LOG("[代码源显示 测试] 编辑器就绪：objects=1 controller=1 nav=1 dockController=1 dockNav=1 exec>0");
+
+	// ---- WebSocket 会话 ----
+	WsClient client;
+	std::string wsError;
+	if (!client.Connect(editorPort, wsError))
+	{
+		fail("E_CODESRC_WS", wsError);
+	}
+	{
+		std::string sendError;
+		if (!client.SendText("{\"type\":\"hello\",\"protocolVersion\":1}", sendError))
+		{
+			fail("E_CODESRC_WS", sendError);
+		}
+		const auto startedAt = std::chrono::steady_clock::now();
+		for (;;)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startedAt).count();
+			if (elapsedMs > 5000.0)
+			{
+				fail("E_CODESRC_WELCOME", "5 秒内没有收到 welcome");
+			}
+			std::string message;
+			std::string receiveError;
+			if (client.ReceiveText(message, 100, receiveError))
+			{
+				if (message.find("\"type\":\"welcome\"") != std::string::npos)
+				{
+					break;
+				}
+				continue;
+			}
+			if (receiveError.find("超时") == std::string::npos)
+			{
+				fail("E_CODESRC_WELCOME", "握手期间连接被关闭：" + receiveError);
+			}
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+		}
+	}
+
+	int nextRequest = 501;
+	auto requestAssets = [&](std::string& result) {
+		const int requestId = nextRequest++;
+		std::string sendError;
+		if (!client.SendText("{\"type\":\"command\",\"requestId\":" + std::to_string(requestId) +
+				",\"command\":\"list-assets\"}", sendError))
+		{
+			fail("E_CODESRC_WS_SEND", sendError);
+		}
+		std::vector<std::string> events;
+		if (!PumpUntilResult(pScriptHost, ctx, client, requestId, result, events, 10000))
+		{
+			fail("E_CODESRC_RESULT", "list-assets 的 requestId=" + std::to_string(requestId) +
+				" 在 10 秒内没有 result（异常穿出了命令处理？）");
+		}
+	};
+	auto requireOk = [&](std::string const& result, char const* label) {
+		if (result.find("\"ok\":true") == std::string::npos)
+		{
+			fail("E_CODESRC_OK", std::string(label) + "：list-assets 不是 ok：" + result);
+		}
+	};
+	auto requireField = [&](std::string const& entry, char const* key, std::string const& expected,
+	                        char const* label) {
+		std::string actual;
+		if (!JsonFieldOf(entry, key, actual))
+		{
+			fail("E_CODESRC_FIELD", std::string(label) + "：条目缺字段 " + key + "：" + entry);
+		}
+		if (actual != expected)
+		{
+			fail("E_CODESRC_FIELD",
+				std::string(label) + "：字段 " + key + " = \"" + actual + "\"，期望 \"" + expected + "\"；条目：" +
+					entry);
+		}
+	};
+	auto countKind = [](std::vector<std::string> const& objects, char const* kind) {
+		int count = 0;
+		for (std::string const& object : objects)
+		{
+			std::string value;
+			if (JsonFieldOf(object, "kind", value) && value == kind)
+			{
+				++count;
+			}
+		}
+		return count;
+	};
+
+	// ---- ① 首轮（源显示默认 on）：隐程序集、显源条目、探针 shLib 落默认 ----
+	{
+		std::string result;
+		requestAssets(result);
+		requireOk(result, "① 首轮");
+		const std::vector<std::string> entries = JsonAssetObjects(result);
+		// 写死条目数：3 条 shader-source（Alpha/Beta/Shared）+ 1 条 shader-source-missing（Missing）+
+		// 2 条 csharp-source（Host/Tool）+ 1 条 source-omitted（生成绑定略去标记）+
+		// 1 条探针 shLib（数据型，落默认仍显）= 8。
+		if (entries.size() != 8u)
+		{
+			fail("E_CODESRC_LIST",
+				"条目数 " + std::to_string(entries.size()) + " ≠ 写死值 8；结果：" + result);
+		}
+		// ①a 两个钉死路径的 shLib 必须隐去（提供者只产源条目，不产 shLib 自身条目）。
+		for (char const* hiddenPath : { "VulkanShaderLibrary.shLib", "D3D12ShaderLibrary.shLib" })
+		{
+			std::string entry;
+			if (FindAssetObject(entries, hiddenPath, entry))
+			{
+				fail("E_CODESRC_HIDE", std::string("shLib 条目没有被隐去：") + hiddenPath + "；条目：" + entry);
+			}
+		}
+		// ①b dll 条目不出现（dll 本来也不在资产根；这里同时防"显示资源把程序集本体引进来"）。
+		for (std::string const& object : entries)
+		{
+			std::string path;
+			if (JsonFieldOf(object, "path", path) && path.find("Scripting.Managed.dll") != std::string::npos)
+			{
+				fail("E_CODESRC_HIDE", "dll 条目出现（应当只显源）：" + object);
+			}
+		}
+		// ①c 路径不同的探针 shLib 落默认提供者仍显（精确绑定不命中）；条目只有 path + kind。
+		{
+			std::string probe;
+			if (!FindAssetObject(entries, "ShaderLibraries/Browser.shLib", probe))
+			{
+				fail("E_CODESRC_PROBE", "探针 shLib（路径不同）没有落默认提供者仍显；结果：" + result);
+			}
+			requireField(probe, "kind", "shader-library", "探针 shLib");
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(probe, offender))
+			{
+				fail("E_CODESRC_FIELDS", "探针 shLib 多了没要求过的字段 \"" + offender + "\"：" + probe);
+			}
+		}
+		// ①d 源条目逐条等于写死期望（path 相对工程根 + kind；条目只有这两个字段）。
+		struct ExpectedSource
+		{
+			char const* path;
+			char const* kind;
+		};
+		const ExpectedSource expectedSources[] = {
+			{ "CAResources/Shaders/Alpha.slang", "shader-source" },
+			{ "CAResources/Shaders/Beta.slang", "shader-source" },
+			{ "CAResources/Shaders/Missing.slang", "shader-source-missing" },
+			{ "CAResources/Shaders/Shared.slang", "shader-source" },
+			{ "Scripting/Managed/Host.cs", "csharp-source" },
+			{ "Scripting/Managed/Tool.cs", "csharp-source" },
+		};
+		for (ExpectedSource const& expected : expectedSources)
+		{
+			std::string entry;
+			if (!FindAssetObject(entries, expected.path, entry))
+			{
+				fail("E_CODESRC_LIST", std::string("结果里没有源条目 ") + expected.path + "；结果：" + result);
+			}
+			const std::string label = std::string("源条目 ") + expected.path;
+			requireField(entry, "path", expected.path, label.c_str());
+			requireField(entry, "kind", expected.kind, label.c_str());
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(entry, offender))
+			{
+				fail("E_CODESRC_FIELDS", label + " 多了没要求过的字段 \"" + offender + "\"：" + entry);
+			}
+		}
+		// ①e 源条目数写死（不是「== 源文件数」那种恒等式）。
+		if (countKind(entries, "shader-source") != 3)
+		{
+			fail("E_CODESRC_COUNT", "shader-source 条目数 " + std::to_string(countKind(entries, "shader-source")) +
+				" ≠ 写死值 3；结果：" + result);
+		}
+		if (countKind(entries, "shader-source-missing") != 1)
+		{
+			fail("E_CODESRC_COUNT", "shader-source-missing 条目数 " +
+				std::to_string(countKind(entries, "shader-source-missing")) + " ≠ 写死值 1；结果：" + result);
+		}
+		if (countKind(entries, "csharp-source") != 2)
+		{
+			fail("E_CODESRC_COUNT", "csharp-source 条目数 " + std::to_string(countKind(entries, "csharp-source")) +
+				" ≠ 写死值 2；结果：" + result);
+		}
+		// ①f 生成绑定源明示略去 + 取回目录（相对工程根）；128 个生成绑定源不显示但可核。
+		{
+			std::string omitted;
+			if (!FindAssetObject(entries, omittedRelative, omitted))
+			{
+				fail("E_CODESRC_OMITTED", "没有生成绑定源的略去标记条目（期望取回目录 " + omittedRelative + "）；结果：" +
+					result);
+			}
+			requireField(omitted, "kind", "source-omitted", "略去标记");
+			std::string offender;
+			if (!JsonEntryHasOnlyPathAndKind(omitted, offender))
+			{
+				fail("E_CODESRC_FIELDS", "略去标记多了没要求过的字段 \"" + offender + "\"：" + omitted);
+			}
+		}
+		if (countKind(entries, "source-omitted") != 1)
+		{
+			fail("E_CODESRC_COUNT",
+				"source-omitted 条目数 " + std::to_string(countKind(entries, "source-omitted")) + " ≠ 写死值 1");
+		}
+		// ①g obj 生成产物不出现 + path 无重复（两 shLib 按源路径去重的直接证据）。
+		std::map<std::string, int> pathCounts;
+		for (std::string const& object : entries)
+		{
+			std::string path;
+			JsonFieldOf(object, "path", path);
+			if (path.find("obj/") != std::string::npos)
+			{
+				fail("E_CODESRC_OBJ", "obj/ 生成产物出现在条目里：" + object);
+			}
+			if (path.rfind("Shaders/", 0) == 0)
+			{
+				fail("E_CODESRC_BASE", "源条目 path 是相对资源根的形式（应为相对工程根）：" + object);
+			}
+			if (++pathCounts[path] > 1)
+			{
+				fail("E_CODESRC_DUP", "path 重复（两 shLib 去重失效）：" + path);
+			}
+		}
+		CA_LOG("[代码源显示 测试 ①] 8 条：3 shader-source + 1 shader-source-missing + 2 csharp-source + "
+		       "1 source-omitted + 1 探针 shLib；两个钉死 shLib 与 dll 均不出现，缺源 kind 与 obj 排除都成立");
+	}
+
+	// ---- ② 红态（同进程差分）：SOURCE_DISPLAY=off → 钉死 shLib 落默认仍显；翻回 on 源条目恢复 ----
+	{
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", "off");
+		std::string result;
+		requestAssets(result);
+		requireOk(result, "② off 红态");
+		const std::vector<std::string> entries = JsonAssetObjects(result);
+		// 写死：off 时三个 shLib 全部落默认提供者（两个钉死路径 + 探针），源条目 0 条。
+		if (entries.size() != 3u)
+		{
+			fail("E_CODESRC_OFF", "off 时条目数 " + std::to_string(entries.size()) + " ≠ 写死值 3；结果：" + result);
+		}
+		for (char const* shaderLibraryPath : { "VulkanShaderLibrary.shLib", "D3D12ShaderLibrary.shLib",
+			     "ShaderLibraries/Browser.shLib" })
+		{
+			std::string entry;
+			if (!FindAssetObject(entries, shaderLibraryPath, entry))
+			{
+				fail("E_CODESRC_OFF", std::string("off 时 shLib 没有落默认仍显：") + shaderLibraryPath + "；结果：" +
+					result);
+			}
+			requireField(entry, "kind", "shader-library", shaderLibraryPath);
+		}
+		if (countKind(entries, "shader-source") != 0 || countKind(entries, "shader-source-missing") != 0 ||
+			countKind(entries, "csharp-source") != 0 || countKind(entries, "source-omitted") != 0)
+		{
+			fail("E_CODESRC_OFF", "off 时仍有源条目 / 略去标记；结果：" + result);
+		}
+		// 同进程翻回 on：源条目恢复、两个钉死 shLib 又被隐去（差分成立，说明开关每次枚举都读）。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_SOURCE_DISPLAY", nullptr);
+		std::string recovered;
+		requestAssets(recovered);
+		requireOk(recovered, "② 翻回 on");
+		const std::vector<std::string> recoveredEntries = JsonAssetObjects(recovered);
+		if (recoveredEntries.size() != 8u || countKind(recoveredEntries, "shader-source") != 3 ||
+			countKind(recoveredEntries, "shader-source-missing") != 1)
+		{
+			fail("E_CODESRC_OFF", "翻回 on 后源条目没有恢复（条目数 " +
+				std::to_string(recoveredEntries.size()) + "）：" + recovered);
+		}
+		for (char const* hiddenPath : { "VulkanShaderLibrary.shLib", "D3D12ShaderLibrary.shLib" })
+		{
+			std::string entry;
+			if (FindAssetObject(recoveredEntries, hiddenPath, entry))
+			{
+				fail("E_CODESRC_OFF", std::string("翻回 on 后 shLib 仍显（源显示没生效）：") + hiddenPath);
+			}
+		}
+		CA_LOG("[代码源显示 测试 ②] off → 3 条 shLib 落默认仍显、源条目 0；翻回 on → 8 条恢复、shLib 又隐去");
+	}
+
+	// ---- ③ 红态：工程根没有 Scripting/ → 显式 E_ASSET_ROOT（不静默空列表），恢复后 ok ----
+	{
+		::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", noScriptingRoot.string().c_str());
+		std::string result;
+		requestAssets(result);
+		if (result.find("\"ok\":true") != std::string::npos)
+		{
+			fail("E_CODESRC_ROOT", "工程根没有 Scripting/ 时 list-assets 仍是 ok（静默空列表冒充成功）：" + result);
+		}
+		std::string code;
+		std::string message;
+		if (!JsonFieldOf(result, "code", code) || code != "E_ASSET_ROOT")
+		{
+			fail("E_CODESRC_ROOT", "错误码不是 E_ASSET_ROOT：" + result);
+		}
+		if (!JsonFieldOf(result, "message", message) || message.find("源根") == std::string::npos)
+		{
+			fail("E_CODESRC_ROOT", "错误消息没有点名 C# 源根：" + result);
+		}
+		// 同进程恢复工程根：再枚举必须回到 ok（差分成立）。
+		::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", projectRoot.string().c_str());
+		std::string recovered;
+		requestAssets(recovered);
+		requireOk(recovered, "③ 恢复工程根");
+		CA_LOG("[代码源显示 测试 ③] 源根非法 → E_ASSET_ROOT 且点名源根；恢复后 ok");
+	}
+
+	// ---- 抓窗（3.2 视觉验收的 test 侧支撑）：设了 CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE 就再推 ~3 秒帧 ----
+	// 抓窗前必须把 dock 拉回「8 条源列表」这个正控画面：
+	//   · ③ 的「源根非法」红态会让 dock 自己的一次重拉画成错误 banner（dock 只渲染它自己 requestId 的结果；
+	//     我们的 ③ 恢复枚举与上一次快照相同、不会广播 assets-changed，所以 dock 不会自己再拉一次）；
+	//   · 这里制造一次**真实的数据型增删**（加一个探针 .res 再删掉）→ 两次 assets-changed → dock 重拉两次，
+	//     删掉之后那次重拉拿到的是 8 条源列表（错误 banner 被前端 renderAssets 清掉）。
+	// 然后推 ~3 秒帧：让 dock 处理完最后那次重拉并把 8 条画出来，抓窗钩子在这段时间里覆盖落盘。画面内容由
+	// 主循环用 read_image 核对（编辑器任务硬要求），这里只断言「确实抓到非空 PNG」。
+	if (captureDock)
+	{
+		::SetEnvironmentVariableA("CASCADED_EDITOR_PROJECT_ROOT", projectRoot.string().c_str());
+		const std::filesystem::path refreshProbe = assetRoot / "CaptureRefreshProbe.res";
+		{
+			std::ofstream probeStream(refreshProbe, std::ios::binary | std::ios::trunc);
+			const char payload[2] = { 'r', 'f' };
+			if (!probeStream)
+			{
+				fail("E_CODESRC_CAPTURE", "抓窗刷新探针写不出来：" + refreshProbe.string());
+			}
+			probeStream.write(payload, static_cast<std::streamsize>(sizeof(payload)));
+			if (!probeStream)
+			{
+				fail("E_CODESRC_CAPTURE", "抓窗刷新探针写失败：" + refreshProbe.string());
+			}
+		}
+		std::string refreshed;
+		requestAssets(refreshed); // 9 条 → 广播 assets-changed(added=1) → dock 重拉
+		requireOk(refreshed, "抓窗刷新（加探针）");
+		std::error_code removeError;
+		if (!std::filesystem::remove(refreshProbe, removeError) || std::filesystem::exists(refreshProbe))
+		{
+			fail("E_CODESRC_CAPTURE", "抓窗刷新探针删不掉（画面会多一行）：" + refreshProbe.string());
+		}
+		std::string restored;
+		requestAssets(restored); // 8 条 → 广播 assets-changed(removed=1) → dock 重拉回 8 条源列表
+		requireOk(restored, "抓窗刷新（删探针）");
+
+		const auto captureStartedAt = std::chrono::steady_clock::now();
+		int captureTicks = 0;
+		while (true)
+		{
+			const double elapsedMs =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - captureStartedAt).count();
+			if (elapsedMs > 3000.0)
+			{
+				break;
+			}
+			++captureTicks;
+			pScriptHost->Tick(0.016);
+			ctx.pWindowSystem->UpdateSystem();
+			std::this_thread::sleep_for(std::chrono::milliseconds(6));
+		}
+		std::error_code captureError;
+		std::uintmax_t captureSize = 0;
+		if (std::filesystem::exists(capturePath, captureError))
+		{
+			captureSize = std::filesystem::file_size(capturePath, captureError);
+		}
+		if (captureSize == 0)
+		{
+			fail("E_CODESRC_CAPTURE", "CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE 设了但没抓到 dock 画面（" +
+				WideToUtf8(capturePathWide) + "，推了 " + std::to_string(captureTicks) + " 帧）");
+		}
+		CA_LOG("[代码源显示 测试 抓窗] dock 画面已落盘：{}（{} 字节，推了 {} 帧；抓窗前已用数据型增删把 dock "
+		       "拉回 8 条源列表）", WideToUtf8(capturePathWide), captureSize, captureTicks);
+	}
+
+	// 收尾：主动停服务（与既有编辑器用例同一判据），再关本用例的宿主窗口。
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", "1");
+	pScriptHost->Tick(0.016);
+	ctx.pWindowSystem->UpdateSystem();
+	::SetEnvironmentVariableA("CASCADED_EDITOR_STOP", nullptr);
+	if (!LogContains(readingsPath.c_str(), "已关闭（测试请求停止"))
+	{
+		fail("E_CODESRC_STOP", "CASCADED_EDITOR_STOP=1 之后没有服务关闭日志");
+	}
+	client.Close();
+	windowKeepAlive->CloseWindow();
+	windowKeepAlive.reset();
+	ctx.pWindowSystem->UpdateSystem();
+	::SetEnvironmentVariableA("CASCADED_EDITOR", nullptr);
+	if (pScriptHost->LastError() != baselineError)
+	{
+		fail("E_CODESRC_HOST", std::string("编辑器收尾之后宿主 LastError 变了：") + pScriptHost->LastError());
+	}
+
+	CA_LOG("TestCodeSourceDisplay 通过：隐程序集显源（3 shader-source + 1 shader-source-missing + 2 csharp-source "
+	       "+ 1 略去标记 + 1 探针 "
+	       "shLib）→ 缺源标记 / obj 排除 / 去重 / 路径基准 → off 同进程差分（shLib 落默认仍显）→ 源根非法显式 "
+	       "E_ASSET_ROOT");
 }
 
 // ---- TestCSharpWindowCallbacks（本 change 任务 4.1 / 4.2 / 4.3 / 5.2）----
@@ -11788,6 +12423,10 @@ int main(int argc, char* argv[])
 		// 资产浏览器 list-assets 联动 + 红态读数）。**独立进程跑**（编辑器服务一次性状态机 + 换资源根），
 		// 所以它进了清单但**不进下面的全量顺序跑**，只按 `--test TestSourceImporters` 跑。
 		std::cout << "  TestSourceImporters\n";
+		// editor-code-source-display 3.1：第 26 项（代码型隐程序集显源：shLib 字节读源路径 + 手写 C# 源 +
+		// 注册显示资源 + 同进程差分红态）。**独立进程跑**（编辑器服务一次性状态机 + 换资源根 / 工程根），
+		// 所以它进了清单但**不进下面的全量顺序跑**，只按 `--test TestCodeSourceDisplay` 跑。
+		std::cout << "  TestCodeSourceDisplay\n";
 		return 0;
 	}
 
@@ -12143,6 +12782,12 @@ int main(int argc, char* argv[])
 		// source-importers-png-obj 3.1：独立进程用例（编辑器服务一次性状态机 + 换资源根 / 注册表），
 		// 只走这条单跑分发，不排进下面的全量顺序跑。
 		runTestWithDiagnostics("TestSourceImporters", TestSourceImporters);
+	}
+		else if (strcmp(testName.c_str(), "TestCodeSourceDisplay") == 0)
+	{
+		// editor-code-source-display 3.1：独立进程用例（编辑器服务一次性状态机 + 换资源根 / 工程根），
+		// 只走这条单跑分发，不排进下面的全量顺序跑。
+		runTestWithDiagnostics("TestCodeSourceDisplay", TestCodeSourceDisplay);
 	}
 		else if (strcmp(testName.c_str(), "TestIOErrorChannel") == 0)
 	{

@@ -1,0 +1,46 @@
+# evidence 1.1 / 1.2 验收读数（对账）
+
+生成时间：2026-11-25。本文件记录 tasks 1.1 / 1.2 的验收读数出处与实测值；原始日志在
+`evidence/3.1--list.txt`、`evidence/3.1-TestCodeSourceDisplay.txt`。
+
+## ① 构建过（构建先于跑测试）
+
+- 主循环执行 `python build.py --config Debug` → BUILD SUCCESSFUL（0 错误，含 EditorWeb `tsc --noEmit` + `vite build`）。
+- 产物时间戳核对（证明构建包含了本 change 的改动）：`out/build/x64-debug/bin/GPUBackendTester.exe`
+  = 2026-11-25 17:23:14、`out/build/x64-debug/bin/Scripting.Managed.dll` = 2026-11-25 17:23:20；
+  最后一批源改动：`Scripting/Managed/Editor/EditorService.cs` = 17:19:31、`Test/GPUBackendTester/Main.cpp`
+  = 17:20:53 → 两个产物都晚于全部源改动。
+
+## ② 1.1：精确绑定优先 / 探针落默认 / off 同进程差分
+
+来自 `evidence/3.1-TestCodeSourceDisplay.txt` 的真实日志行：
+
+- `[代码源显示 测试 ①] 8 条：4 shader-source + 2 csharp-source + 1 source-omitted + 1 探针 shLib；两个钉死 shLib 与 dll 均不出现，缺源标记与 obj 排除都成立`
+  - 精确 (shader-library, "VulkanShaderLibrary.shLib") / (shader-library, "D3D12ShaderLibrary.shLib") 命中
+    ShaderSourceDisplayProvider → 两个 shLib 自身条目不出现、其源路径以 shader-source 出现；
+  - 路径不同的探针 `ShaderLibraries/Browser.shLib` 未命中精确绑定 → 落默认提供者仍显（kind=shader-library）。
+- `[代码源显示 测试 ②] off → 3 条 shLib 落默认仍显、源条目 0；翻回 on → 8 条恢复、shLib 又隐去`
+  - `CASCADED_EDITOR_SOURCE_DISPLAY=off` 时两个钉死 shLib 落默认提供者仍显；同进程翻回 on 后源条目恢复
+    → 开关与「落默认」是同进程差分，不是跨进程对照。
+- `--list` 26 条且含 `TestCodeSourceDisplay`（`evidence/3.1--list.txt` 实测 26 行，末项即该用例；全量仍 22 条，
+  未把新用例排进全量顺序跑）。
+
+## ③ 1.2：注册显示资源表可查 + SourceFiles 主线程填、提供者只读
+
+- 注册显示资源 `(csharp-script, "Scripting.Managed.dll")`：dll 不在资产根（bin/ 下），但枚举仍引入
+  `2` 条 csharp-source（`Scripting/Managed/Host.cs`、`Scripting/Managed/Tool.cs`）+ `1` 条 source-omitted
+  标记（`out/build/x64-debug/codegen/bindings`）——即 ① 日志里的 8 条构成（4 + 2 + 1 + 1）。
+- `SourceFiles` 由主线程填的证据：`evidence/2.1-源映射与纯投影.txt` 的「提供者文件调用形状」
+  `Directory.` / `FileInfo(` / `HasResource(` / `IResourceRegistry` / `GetResourceRootPath` / `File.Read|...`
+  合计 **0 命中**（提供者只读 context，不碰文件系统、不调门面）。
+
+## ④ 核心资源接口 / 门面头零改动
+
+命令：`git diff --name-only -- CACore GeneralResources` → 0 个文件（`evidence/2.3-协议镜像与前端按kind与README.txt`
+第 ⑤ 节同一读数）。
+
+## 结论
+
+1.1 / 1.2 的验收条件（构建过、精确绑定优先、探针落默认、off 同进程差分、登记表引入条目可观察、
+SourceFiles 主线程填且提供者只读、核心接口零改动）全部由上面的真实日志 / 命令读数满足；
+`check_csharp_host_readme` 0 问题见 `evidence/2.3-README检查.txt`。

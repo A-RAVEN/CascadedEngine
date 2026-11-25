@@ -1,0 +1,91 @@
+# evidence 5.1–5.3：条目极简 path+kind（删除幻想字段）
+
+生成时间：2026-11-25。用户裁定「除了资源路径和资源类型，其它几个条目都是你擅自加的东西」「如果我没有要求过，
+那就是你的幻想」；本节把 AssetEntry 删到只剩 path + kind，并同步协议三处镜像、前端两列渲染、主线程/提供者去掉
+大小/时间/注册状态/子条目/编号。本文件的读数全部由只读命令产出。
+
+## ① 5.1 禁词检查（大小写敏感；期望每个文件 0）
+
+命令：Select-String -Path <文件> -Pattern 'sizeBytes|modifiedUtc|registered|children|nodeId' -CaseSensitive
+
+| 文件 | 命中 |
+|---|---|
+| `Scripting/Managed/Editor/AssetDisplay.cs` | 0 |
+| `Scripting/Managed/Editor/PROTOCOL.md` | 0 |
+| `EditorWeb/src/protocol.ts` | 0 |
+| `Scripting/Managed/Editor/EditorProtocol.cs` | 0 |
+
+## ② 5.1 两字段三处镜像（逐字）
+
+`EditorWeb/src/protocol.ts`：
+
+```ts
+export interface AssetEntry {
+  path: string;
+  kind: string;
+}
+```
+
+`Scripting/Managed/Editor/AssetDisplay.cs`（AssetEntry.ToJson，仅两键）：
+
+```csharp
+        internal Dictionary<string, object> ToJson()
+        {
+            return new Dictionary<string, object>
+            {
+                ["path"] = Path,
+                ["kind"] = Kind,
+            };
+        }
+```
+
+`Scripting/Managed/Editor/PROTOCOL.md` 2.6 字段表只有两行：`| `path` | string | … |`、`| `kind` | string | … |`。
+
+种类常量三处逐字一致（PROTOCOL.md 2.6 / protocol.ts / EditorProtocol.cs）：
+`shader-source`、`csharp-source`、`shader-source-missing`、`source-omitted`（缺源 kind 由 `source-missing`
+改为 `shader-source-missing`，children 标记机制随字段一起删除）。
+
+协议版本仍为 1（`EditorProtocol.cs` 的 `Version = 1`、`protocol.ts` 的 `PROTOCOL_VERSION = 1`）。
+
+## ③ 5.2 禁词检查（assets.ts；期望 0）
+
+命令：Select-String -Path EditorWeb/src/assets.ts -Pattern 'sizeBytes|modifiedUtc|registered|已注册|未注册|大小|修改时间'
+命中：0
+
+前端渲染两列（路径 / 种类）：`renderAssets` 的 cells 只有 `[entry.path, …]` 与 `[kindText, …]` 两项；
+`assets.html` 的表头/colgroup 也只有「路径」「种类」两列；`KIND_LABELS` 增加
+`shader-source-missing → 着色器源文件（源文件缺失）`，路径基准仍按 kind 在单元 title 上标注
+（数据型相对资源根 / 源型相对工程根 / source-omitted 取回目录）。
+
+## ④ 5.3 禁词检查（EditorService + 两个提供者；期望 0）
+
+命令：Select-String -Path Scripting/Managed/Editor/EditorService.cs Scripting/Managed/Editor/DisplayProviders/*.cs
+-Pattern 'sizeBytes|modifiedUtc|registered|FileInfo' -CaseSensitive
+
+| 文件 | 命中 |
+|---|---|
+| `EditorService.cs` | 0 |
+| `DisplayProviders/ShaderSourceDisplayProvider.cs` | 0 |
+| `DisplayProviders/CSharpSourceDisplayProvider.cs` | 0 |
+
+实现要点（读文件核对）：
+- `EnumerateAssets` 不再 `new FileInfo(...)` 读大小/时间、不再调门面读注册状态；条目去重/排序按 `path`。
+- 源文件只在主线程用 `File.Exists` 查存在性（`BuildSourcePathInfo` → `AssetSourceFile{Path, Exists}`），
+  不读大小/时间、不查注册状态。
+- 两提供者只产 `{path, kind}`：shader 缺源用 `kind=shader-source-missing`；C# 的生成绑定略去标记
+  仍是 `kind=source-omitted`（path = 取回目录）。
+
+## ⑤ 文档对拍与工件校验
+
+```
+python Tools/check_csharp_host_readme.py   → 问题 0 处（exit 0）
+openspec validate editor-code-source-display → Change 'editor-code-source-display' is valid
+```
+
+CSharpHost/README.md 的资产浏览器段与源显示段同步改写：条目只有 path + kind、dock 两列；
+删掉了 FileInfo 大小/时间、HasResource 注册状态、children/source-missing、nodeId 等旧说法。
+
+## ⑥ 待主循环回传的读数（本轮实现尚未勾选 5.1–5.4）
+
+构建（`python build.py --config Debug`，含 EditorWeb tsc+vite）→ `--list`（26）→ `TestCodeSourceDisplay`
+→ `TestEditorAssetBrowser` → `TestSourceImporters`；读数回传后按实测勾 5.1–5.4，5.5（两列截图）由主循环做。

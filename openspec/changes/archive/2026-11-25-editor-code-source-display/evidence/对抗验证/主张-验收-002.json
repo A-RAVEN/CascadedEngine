@@ -1,0 +1,9 @@
+{
+  "id": "验收-002",
+  "face": "①装配条目隐去",
+  "severity": "misleading",
+  "claim": "「dll 条目不出现」在给定夹具下恒真、没有任何能失败的时刻：dll 本来就不在 CAAssets（design 明说），资产根枚举只枚举 CAAssets 内文件，KindOf 也没有 .dll 到 csharp-script 的映射；唯一可能产出 dll 条目的是 CSharpSourceDisplayProvider 自己，而「注册显示资源整段没接线」时该断言照样绿（同组 .cs 条目断言会红，但「dll 隐去」这一条本身永远是绿的）。更严重的是：把 Scripting.Managed.dll 放进临时 CAAssets，它会以 kind=file 正常进入列表——proposal 写的「代码型程序集隐去」并不覆盖资产根内的 dll，而验收也不覆盖这一情形，等于把「隐去」的边界藏在一个构造不出来的场景后面。",
+  "location": "openspec/changes/editor-code-source-display/design.md「C# 程序集 `Scripting.Managed.dll` 在 `out/build/<preset>/bin/`（**不在 CAAssets**）」；specs/editor-code-source-display/spec.md「结果 MUST NOT 含 dll 条目」；Scripting/Managed/Editor/AssetDisplay.cs 的种类映射 `[.shlib] = shader-library`、`[.tex] = texture`、`[.mesh] = mesh`、`[.res] = resource`（无 .dll 项，未知扩展名落 file）；Scripting/Managed/Editor/EditorService.cs「foreach (string file in Directory.EnumerateFiles(root, \"*\", SearchOption.AllDirectories))」；proposal.md「代码型程序集隐去、源文件显现」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-002.md",
+  "suggested_fix": "把断言从「dll 条目不出现」改成「条目集合精确等于写死期望」（多一条即红），并在同一用例里加一条显式红态：把 Scripting.Managed.dll 放进临时 CAAssets，按所选口径断言它必须被隐去（需要把 .dll 映射到 csharp-script 种类，或明确写「隐去只覆盖注册显示资源自身、资产根内同名文件仍显示」并把该句同步进 spec 与 proposal）。不允许留一条结构上不可失败的「不出现」断言。"
+}

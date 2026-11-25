@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-003",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/editor-code-source-display/design.md",
+  "anchor": "design.md:9「`ShaderLibrary`（C++ 后端，`m_ShaderFiles` 键是 `cacore::PathHash`＝源路径**哈希**非路径串，`ShaderFileInfo.path` 也是 PathHash）」",
+  "problem": "符号 `ShaderFileInfo` 在 Vulkan 后端不存在：Vulkan 侧同类结构名是 `VulkanShaderFileInfo`（`VulkanRenderBackendNew/private/ShaderLibrary/ShaderLibrary.h` 第 187 行 `struct VulkanShaderFileInfo`，第 196 行 `cacore::PathHash path;`，第 227 行 `castl::unordered_map<cacore::PathHash, VulkanShaderFileInfo> m_ShaderFiles;`）；`struct ShaderFileInfo` 在该头文件里 0 命中。D3D12 侧是真的：`D3D12RenderBackend/private/ShaderLibrary/ShaderLibrary.h` 第 126 行 `struct ShaderFileInfo`，第 135 行 `cacore::PathHash path;`，第 168 行 `castl::unordered_map<cacore::PathHash, ShaderFileInfo> m_ShaderFiles;`。机制（键是路径哈希、值为带 `cacore::PathHash path` 的结构）两后端都真实存在，所以不是「机制不存在」；问题是工件只写了一个后端才有的类型名，读成「两后端都有 `ShaderFileInfo`」即为假事实。D3 的全部推理（拿不到源路径串，故必须扫源目录）本身仍成立，已另行核对：`ShaderCompilerSlang::ShaderReflectionData`（`Interface/ShaderCompiler/header/Compiler.h` 第 567-600 行）里没有任何源路径字符串成员。",
+  "evidence": "见 `证据-存在-003.md`：① Vulkan 头文件 grep `ShaderFileInfo` 命中 4 处，均为 `VulkanShaderFileInfo`（含 codegen include），`struct ShaderFileInfo` 零命中；② D3D12 头文件 grep 命中 `struct ShaderFileInfo`；③ 两文件原文段落证明 `m_ShaderFiles` 的键类型都是 `cacore::PathHash`、值类型里的 `path` 成员都是 `cacore::PathHash`；④ `Compiler.h` 的 `ShaderReflectionData` 原文证明没有源路径串（佐证 D3 推理不假）。",
+  "suggestion": "把 design.md:9 改成按后端点名：「两后端 `m_ShaderFiles` 都是 `castl::unordered_map<cacore::PathHash, ...>`（D3D12 值类型 `ShaderFileInfo`、Vulkan 值类型 `VulkanShaderFileInfo`），两种结构的 `path` 成员都是 `cacore::PathHash` 而非路径串」。只改这一处措辞，不放宽任何判据。"
+}

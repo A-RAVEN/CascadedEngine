@@ -3,6 +3,10 @@
 // 独立页面：由编辑器服务的**第二个 WebView2 控制器**加载（design D6 / D9），与右侧对象检查器页面
 // （index.html + main.ts）分离。只做资产浏览：连接后拉 `list-assets`、渲染表格、收到 `assets-changed`
 // 重拉、空态与错误显示。协议类型全部来自 protocol.ts（唯一事实源是 PROTOCOL.md）。
+//
+// editor-code-source-display 5.2：条目**只有 path + kind 两个字段**（用户裁定），表格通用渲染**两列（路径/种类）**；
+// **按 kind 区分路径基准**，不把两种基准混成一列读数 —— 数据型条目的 path 相对资源根、源种类
+//（shader-source / csharp-source / shader-source-missing）的 path 相对工程根；source-omitted 的 path 是取回目录。
 
 import type {
   AssetChangedFields,
@@ -12,7 +16,20 @@ import type {
   ResultMessage,
   ServerMessage,
 } from './protocol';
-import { PROTOCOL_VERSION } from './protocol';
+import { isSourceKind, PROTOCOL_VERSION, SOURCE_OMITTED_KIND } from './protocol';
+
+/** 源类型 / 标记类型的中文类型名（PROTOCOL.md 2.6、§5）；未知类型原样显示。 */
+const KIND_LABELS: Record<string, string> = {
+  'shader-source': '着色器源文件',
+  'shader-source-missing': '着色器源文件（源文件缺失）',
+  'csharp-source': 'C# 源文件',
+  'source-omitted': '生成绑定源（已略去）',
+};
+
+/** 路径基准说明（挂在路径单元的 title 上：数据型相对资源根、源型相对工程根，不混基准）。 */
+const PATH_BASE_DATA = '路径相对资源根';
+const PATH_BASE_SOURCE = '路径相对工程根';
+const PATH_BASE_OMITTED = '取回目录（路径相对工程根）';
 
 function must<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -40,19 +57,6 @@ function setStatus(text: string, className: string): void {
   statusEl.className = className;
 }
 
-function formatBytes(bytes: number): string {
-  return `${bytes.toLocaleString('zh-CN')} B`;
-}
-
-function formatModifiedUtc(text: string): string {
-  // 服务端给的是 ISO 8601 UTC（例 2024-03-04T05:06:07.0000000Z）；显示到秒，解析失败就原样显示。
-  const at = text.indexOf('.');
-  if (at > 0 && text.endsWith('Z')) {
-    return `${text.slice(0, at)}Z`;
-  }
-  return text;
-}
-
 function requestAssets(): void {
   if (socket === null || socket.readyState !== WebSocket.OPEN) {
     return;
@@ -77,21 +81,27 @@ function renderAssets(assets: AssetEntry[]): void {
   }
   for (const entry of assets) {
     const row = document.createElement('tr');
-    const cells: Array<[string, string]> = [
-      [entry.path, ''],
-      [entry.kind, ''],
-      [formatBytes(entry.sizeBytes), ''],
-      [formatModifiedUtc(entry.modifiedUtc), ''],
-      [entry.registered ? '已注册' : '未注册', entry.registered ? 'registered-true' : 'registered-false'],
+    const isSource = isSourceKind(entry.kind);
+    const isOmitted = entry.kind === SOURCE_OMITTED_KIND;
+    const pathBase = isOmitted ? PATH_BASE_OMITTED : isSource ? PATH_BASE_SOURCE : PATH_BASE_DATA;
+    const kindText = KIND_LABELS[entry.kind] ?? entry.kind;
+    // 条目只有 path + kind 两个字段（PROTOCOL.md 2.6）：表格只有路径 / 类型两列，源型在路径单元标注基准。
+    const cells: Array<[string, string, string?]> = [
+      [entry.path, isSource || isOmitted ? 'source-path' : '', pathBase],
+      [kindText, isSource || isOmitted ? 'source-marker' : '', isSource ? PATH_BASE_SOURCE : undefined],
     ];
-    for (const [text, className] of cells) {
+    for (const [text, className, title] of cells) {
       const cell = document.createElement('td');
       cell.textContent = text;
       if (className !== '') {
         cell.className = className;
       }
+      if (title !== undefined) {
+        cell.title = title;
+      }
       row.appendChild(cell);
     }
+    row.className = isSource || isOmitted ? 'source-row' : 'data-row';
     rows.appendChild(row);
   }
   emptyEl.hidden = true;

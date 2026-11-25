@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-003",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；tasks.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:48「现有 22 用例 + CoreTests 全绿」；tasks.md:26「现有 22 用例同进程两后端 name+status 与基线…」；tasks.md:26「CoreTests exit 0 + PASSED 26」；spec.md:57「CoreTests MUST exit 0 + PASSED 26…全量仍 22」",
+  "claim": "22 与 26 都能核到出处，不是编的：Main.cpp 的全量同进程 run-all 段正好 22 条 runTestWithDiagnostics；归档基线 4.1-全量-d3d12.json / -vulkan.json 各 22 条；CoreTests 最新归档日志 4.1-CoreTests.txt 正好 26 行 PASSED。唯一措辞风险是 design 的「现有 22 用例」没写「全量同进程」：当前 --list 实际 25 条（含 3 条独立进程用例），若有人按 --list 理解 22 会以为漏登记；tasks 4.1 已写明「同进程」，spec 也写「全量仍 22」，不构成事实错误。",
+  "evidence": "证据-溯源-003.md：run-all 段 22 条 runTestWithDiagnostics 的行号段、两份基线 JSON 的 22 条、CoreTests 26 行 PASSED、--list 25 条实测。"
+}

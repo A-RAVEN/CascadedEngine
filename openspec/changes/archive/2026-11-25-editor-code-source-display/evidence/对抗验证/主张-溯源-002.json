@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-002",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；tasks.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:9「由 `Scripting/` 下 **38 个 .cs** 编译来」；tasks.md:16「扫 Scripting/（env CASCADED_EDITOR_CSHARP_SOURCE_ROOT）递归 *.cs 产源条目」",
+  "claim": "38 是 Scripting 下全部 .cs 的实数，但其中 2 份在 Scripting/Managed/obj/Debug/net8.0/（.NET 构建生成物 AssemblyAttributes.cs、AssemblyInfo.cs），是构建产物不是源代码；编进 Scripting.Managed.dll 的手写源是 36 份，另加 128 份由 csproj 显式 Include 的 out/build/x64-debug/codegen/bindings/*.Bindings.cs（位于 Scripting 之外）。因此「由 Scripting/ 下 38 个 .cs 编译来」既不等于真实编译输入（36+128=164 份），按 tasks 递归扫 Scripting/ 又会把 2 份 obj 生成物当源文件显示、同时漏掉 128 份真实编译输入。",
+  "evidence": "证据-溯源-002.md：Scripting 递归计数、排除 obj/bin 计数、obj 两份文件名、csproj 第 44/56 行的 Include、bindings 顶层 128 份计数。"
+}

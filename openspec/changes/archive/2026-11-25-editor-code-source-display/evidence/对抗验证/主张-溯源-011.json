@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-011",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/tasks.md；specs/editor-code-source-display/spec.md",
+  "anchor": "tasks.md:21「源条目数==源文件数」；tasks.md:26「现有 22 用例…零差异」；spec.md:24「MUST 含每个 .slang 源条目…源条目数 MUST 等于源目录 .slang 文件数」",
+  "claim": "验收的「源条目数==源文件数」是恒等式：提供者本来就按 Directory.EnumerateFiles 逐个产条目，数量当然相等，抓不到「shLib 里有、源目录里没有」或「源目录里有、shLib 里没有」。实测 CAAssets/VulkanShaderLibrary.shLib 含 21 条源路径，而 CAResources/Shaders 只有 16 份 .slang（5 条 shLib 路径无源文件），D3D12 库则是 16 条一一对应；design D3 又把所有程序集条目隐去，于是用户看不到那 5 条 shader 名，也没有任何读数/断言提示它们存在。反向同理：某个 .slang 编译失败时 shLib 里没有它，提供者仍把它当源文件列出，验收也不会红。按 AGENTS §9，这属于「静默少给/多给」，需要标记与可恢复手段，或至少加一条「shLib 路径集合 − 源文件集合 = 空」的断言。",
+  "evidence": "证据-溯源-011.md：两份 shLib 的路径集合差、验收原文、ShaderImporter 的编译失败仅记日志（ShaderImporter_Vulkan.cpp:358-361）说明源文件列表与库成员无对应校验。"
+}

@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-002",
+  "face": "真实存在性",
+  "severity": "misleading",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/editor-code-source-display/design.md",
+  "anchor": "design.md:52「[源映射走扫源目录约定，非程序集溯源] → 源根可配 + 默认约定；程序集内嵌源路径留身份重设计批（明示 Non-goal）。约定假定 shLib←CAResources/Shaders 全部 .slang，与 ShaderImporter 扫描根一致。」",
+  "problem": "「与 ShaderImporter 扫描根一致」不成立：真实扫描根是 `CAResources`（资源目录本身），不是 `CAResources/Shaders`。证据链：`ShaderImporter_Vulkan::Produce` 用 `GetScanSourceDirectory()` 取根（`ShaderImporter_Vulkan.cpp` 第 310 行 `cafs::path effectiveSourcePath(GetScanSourceDirectory(), cafs::path::format::generic_format);`），再用 `cafs::recursive_directory_iterator(effectiveSourcePath)` 递归找 `.slang`（同文件第 336、341 行）；管线没传根时回退目录由 `RenderBackend_Vulkan.cpp` 第 210 行 `m_ShaderImporter.SetSourceDirectory(p / \"CAResources\");` 设成 `CAResources`；tester 启动扫描传的根是 `ctx.resourcePath`（`Main.cpp` 第 11850 行 `ctx.resourcePath = (rootPath / \"CAResources\").string();`，第 11943 行 `ScanSourceDirectory(ctx.resourcePath)`）。也就是说 shLib 覆盖 `CAResources` 全树下所有 `.slang`，与 `CAResources/Shaders` 只是子集关系；今天 16 份 `.slang` 恰好全在 `Shaders/` 下，所以两者等价 —— 这是巧合，不是约定与扫描根一致。后果：把映射钉在子目录后，任何落在 `CAResources` 根或其它子目录下的 `.slang` 会进 shLib 却进不了显示；而验收「源条目数 MUST 等于源目录 .slang 文件数」两侧都量 `Shaders`，判不出这条漏显。",
+  "evidence": "见 `证据-存在-002.md`：① `Get-ChildItem CAResources -Recurse -Filter *.slang` 计数 = 16，且 `Where-Object { $_.DirectoryName -notlike '*\\Shaders*' }` 输出为空（今天全在 Shaders 下，解释了为什么这条错误没被实测暴露）；② 读 `ShaderImporter_Vulkan.cpp` 第 310/336/341 行原文（取根、递归、只收 `.slang`）；③ 读 `RenderBackend_Vulkan.cpp` 第 208-211 行原文（回退目录 = `p / \"CAResources\"`）；④ 读 `Test/GPUBackendTester/Main.cpp` 第 11850、11943 行原文（扫描根 = `<工程根>/CAResources`）；⑤ Vulkan 与 D3D12 两个导入器同构（`ShaderImporter_D12.cpp` 第 349 行同样取 `GetScanSourceDirectory()`）。",
+  "suggestion": "两条都改，不许留假句：① 默认源根改成与真实扫描根一致的 `CAResources`（递归 `*.slang`，显示 path 仍是相对工程根，例如 `CAResources/Shaders/Test/TestSimpleTriangle.slang`，不改变 D5 字段语义）；或保留 `CAResources/Shaders` 但把 Risks 句改成「真实扫描根是 `CAResources` 全树（`ShaderImporter_Vulkan/D12` 递归扫）；当前 16 份 `.slang` 全在 `Shaders/` 下，故本约定今天等价；扫描根其它位置新增 `.slang` 会漏显」。② 补一条能失败的红态验收：在 `CAResources` 根（或新子目录）放一份 `.slang` 再 list-assets，按所选口径断言它必须出现（选「只扫 Shaders」则在工件里明写该情形不覆盖，并说明为什么可以接受）。"
+}

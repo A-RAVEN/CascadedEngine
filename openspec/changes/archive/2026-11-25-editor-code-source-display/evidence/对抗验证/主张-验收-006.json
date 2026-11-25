@@ -1,0 +1,9 @@
+{
+  "id": "验收-006",
+  "face": "②源条目写死期望",
+  "severity": "misleading",
+  "claim": "「registered=父 shLib 是否 HasResource」在真实资源根不唯一：CAAssets 现有两条 shLib（VulkanShaderLibrary.shLib 145710 B、D3D12ShaderLibrary.shLib 293737 B），而枚举对每个文件都调一次 Describe，两条 shLib 会各扫同一源根，为同一源文件产出两条同 nodeId 条目；按工件「按 nodeId 去重」只保留一条，其 registered 取哪一条取决于枚举/合并顺序（文件系统返回顺序、或两次 Describe 的先后），工件没有钉。tester 3.1 的临时夹具只写「预置 shLib（CAAssets）」单条，写死的 registered 期望覆盖不到这个歧义；真实根的视觉验收又不看 registered。结果：一条在真实部署下不确定的字段，在自动化验收里永远只有一个父 shLib 可判。",
+  "location": "design.md「shader 源条目 registered=HasResource(shLib relative)」与「**去重**：注册显示资源的 path 若已在 CAAssets 枚举到（如 shLib），不重复引入（以文件枚举那条为准）」；tasks.md 3.1「临时工程根预置 shLib（CAAssets）+ 已知 .slang 源（CAResources/Shaders）」；Scripting/Managed/Editor/EditorService.cs「foreach (string file in Directory.EnumerateFiles(root, \"*\", SearchOption.AllDirectories))」→「AssetDisplayProviders.Resolve(kind).Describe(context)」；CAAssets 下两份 .shLib",
+  "evidence_ref": "evidence/对抗验证/证据-验收-006.md",
+  "suggested_fix": "把父程序集口径钉死并给可失败的夹具：① 若取「任一 shLib 已注册」，写 `registered = 任一 shLib 路径 HasResource`；② 若取「同一源文件的每个父 shLib 各一组」，用 AssetEntry.children 分组并把父条目说清（这会与「MUST NOT 产 shLib 自身条目」冲突，需同时改要求）；③ 若取「显示资源级注册」，删掉「父 shLib 是否注册」改为明确来源。无论哪条，tester 夹具须预置两条 shLib 且一条注册、一条不注册，断言每个源条目的 registered 等于写死值，并断言条目数不因两条父 shLib 翻倍。"
+}

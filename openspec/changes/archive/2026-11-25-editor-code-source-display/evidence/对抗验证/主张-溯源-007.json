@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-007",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md；Scripting/Managed/Editor/PROTOCOL.md；openspec/specs/editor-asset-browser/spec.md",
+  "anchor": "design.md:38「C# 源条目 registered=dll 是否视为注册——dll 不在注册表，约定 registered=true 当程序集存在」；spec.md:33「registered=true 当程序集存在」",
+  "claim": "这是凭空改字段语义。已生效的 PROTOCOL.md:127 钉死「registered = 该路径在资源注册表里已有条目（门面 HasResource(path) 读数）」；editor-asset-browser 规范正文也要求「每行 MUST 含…是否已注册（门面 HasResource）」、场景要求「registered MUST 等于 HasResource 读数且真值与假值都出现」。dll 不在资源注册表（design 自己承认），所以 HasResource 读数只能是 false；把它约定成 true 等于让该字段不再表达「已注册」，而是表达一个没人定义过的「程序集存在」。更麻烦的是「程序集存在」没有可解析路径：dll 实际在 out/build/<preset>/bin/，而注册显示资源的 path 是裸名 「Scripting.Managed.dll」（不是 CAAssets 相对路径，也不含 preset），提供者无法从这两个值判断「存在」。任务 3.1 的期望里只对 .cs 条目断言 path/kind/sizeBytes（spec.md:38 也没把 registered 列进 C# 场景），所以这条语义改写不会被验收抓到。",
+  "evidence": "证据-溯源-007.md：PROTOCOL.md:127、editor-asset-browser spec:11/:16、design.md:38 逐字引文；dll 实际位置与 CAAssets 无 dll 的实测；注册 path 是裸名的引文；tasks 3.1 期望字段清单。"
+}

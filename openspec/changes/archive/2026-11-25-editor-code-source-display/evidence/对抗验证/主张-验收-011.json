@@ -1,0 +1,9 @@
+{
+  "id": "验收-011",
+  "face": "⑤源增删事件",
+  "severity": "misleading",
+  "claim": "「源增删→assets-changed」没有钉事件条数、fields（added/removed）和「无变化不广播」的负控：spec 只在 requirement 散文里提了一句，没有对应场景；tasks 3.1 只写「源增删→assets-changed」。于是两种违反协议语义的实现都能绿：① 每次枚举都广播（违反现有实现注释「有增删就广播」「首次成功枚举只记快照、不发事件」）；② added/removed 计数算错。只要收到过一条事件就算过，而「收到事件」本身只能证明快照比对触发了，不能证明计数与抑制正确。现有 TestEditorAssetBrowser 已经示范了应有的写法（恰好 1 条事件 + added=1/removed=0），新用例没有沿用。",
+  "location": "tasks.md 3.1「源增删→assets-changed」；specs/editor-code-source-display/spec.md 要求 4「…+ 源增删 assets-changed +…」（无场景）；Scripting/Managed/Editor/EditorService.cs「与上次成功枚举的路径快照比对，有增删就广播 `assets-changed`（fields 只有 added / removed）。首次成功枚举只记快照、不发事件（没有\"上一次\"可比）」；Test/GPUBackendTester/Main.cpp 现有用例「第二次枚举收到 %d 条 assets-changed，期望恰好 1 条」与「assets-changed 的 fields 不是 added=1/removed=0」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-011.md",
+  "suggested_fix": "在 spec 与 tasks 3.1 写死三段：① 新增 1 份源文件后那次枚举 → 恰好 1 条 assets-changed、fields 逐字为 added=1/removed=0；② 删除 1 份源文件 → 恰好 1 条、fields removed=1/added=0；③ 无变化的连续两次 list-assets → 0 条事件。三段都绑定到具体 requestId 的那次枚举（照现有用例「事件绑定第二次枚举，不是首次」的写法），并写进 evidence 期望读数。"
+}

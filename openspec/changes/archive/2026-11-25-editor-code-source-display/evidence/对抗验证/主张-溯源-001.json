@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-001",
+  "face": "无中生有",
+  "severity": "misleading",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:9「由 `CAResources/Shaders/` 下 **16 个 .slang** 编译来」；design.md:52「约定假定 shLib←CAResources/Shaders 全部 .slang，与 ShaderImporter 扫描根一致」",
+  "claim": "树内 16 份 .slang 是实数；但「CAAssets 的两份 shLib 都由这 16 份编译来」只对 D3D12 成立。VulkanShaderLibrary.shLib 的序列化字节里有 21 条源路径串，其中 5 条（CameraData、GlobalDirectLighting、InstancedStaticMesh、MeshMaterial、TestTriangleWithStructuredBufferColor2）在 CAResources/Shaders 下没有对应文件；D3D12ShaderLibrary.shLib 恰好 16 条且与树一一对应。工件把两份库当同一来源描述，实际有一份携带 5 条已不存在的源路径。",
+  "evidence": "证据-溯源-001.md：16 份 .slang 清单、两份 shLib 字节里 Shaders/ 串的集合差、ShaderImporter_Vulkan.cpp 的路径生成（相对扫描根、去扩展名）。"
+}

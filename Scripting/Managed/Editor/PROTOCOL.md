@@ -81,7 +81,7 @@
 | `set-title` | `{ "object": { id, title, width, height } }`（执行后的状态） |
 | `set-size` | `{ "object": { id, title, width, height } }`（执行后的状态） |
 | `undo` | `{ "object": { id, title, width, height } }`（撤销后的状态） |
-| `list-assets` | `{ "assets": [ AssetEntry, ... ] }`（条目形状见 2.6；目录存在但无文件时为空数组） |
+| `list-assets` | `{ "assets": [ AssetEntry, ... ] }`（条目形状见 2.6；目录存在但无文件时为空数组。条目既含资产根的文件条目（数据型），也含显示提供者产出的源条目与略去标记条目） |
 
 对象快照 `object` 的字段类型：`id`、`width`、`height` 为整数，`title` 为字符串。
 资产条目 `AssetEntry` 的字段与取值范围见 2.6。
@@ -109,29 +109,31 @@
 
 ### 2.6 资产条目 `AssetEntry`
 
-`list-assets` 的 `value.assets` 里每一项的形状（字段名区分大小写，七个字段全部必填）：
+`list-assets` 的 `value.assets` 里每一项的形状（字段名区分大小写，两个字段全部必填）。**条目只有资源路径 + 资源类型**
+（2026-11-25 用户裁定）：大小 / 修改时间 / 注册状态 / 子条目 / 编号这类固定元数据一律不强制，提供者决定显示什么
+（含不存在的历史路径、虚拟条目、略去标记），浏览器忠实渲染。
 
 ```json
-{ "nodeId": "CSharpProbe/Probe.tex", "path": "CSharpProbe/Probe.tex", "kind": "texture",
-  "sizeBytes": 142, "modifiedUtc": "2024-03-04T05:06:07.0000000Z", "registered": true,
-  "children": [] }
+{ "path": "CSharpProbe/Probe.tex", "kind": "texture" }
 ```
 
 | 字段 | 类型 | 取值 |
 |---|---|---|
-| `nodeId` | string | 稳定条目编号。**v1 = `path` = 相对资源根的正斜杠路径**（见下）；v2 溯源落地后仍保持稳定 |
-| `path` | string | 相对资源根的正斜杠路径（例：`CSharpProbe/Probe.tex`） |
-| `kind` | string | 种类（由扩展名映射，大小写不敏感）：`.shLib`→`shader-library`、`.tex`→`texture`、`.mesh`→`mesh`、`.res`→`resource`、其它→`file` |
-| `sizeBytes` | int | 文件字节数（`FileInfo.Length`，非负整数） |
-| `modifiedUtc` | string | 修改时间，**ISO 8601 UTC**（`FileInfo.LastWriteTimeUtc` 的 `"o"` 格式，例：`2024-03-04T05:06:07.0000000Z`） |
-| `registered` | bool | 该路径在资源注册表里**已有条目**（门面 `HasResource(path)` 读数）；未注册的文件同样列出，只是本字段为 `false` |
-| `children` | AssetEntry[] | 子条目。**v1 恒为空数组**；为 v2 的程序集展开 / 衍生物归组预留（届时父条目在 `children` 里挂子条目，`nodeId` 仍稳定） |
+| `path` | string | 资源路径（正斜杠）。数据型种类：相对资源根（例：`CSharpProbe/Probe.tex`）；源种类（`shader-source` / `csharp-source` / `shader-source-missing`）：相对工程根（例：`CAResources/Shaders/FinalBlit.slang`、`Scripting/Managed/Host.cs`）；`source-omitted`：被明示略去的源目录（相对工程根，如 `out/build/x64-debug/codegen/bindings`）—— 调用方按它取回完整内容。`path` 同时是条目的稳定标识（同一次 `list-assets` 结果里不重复） |
+| `kind` | string | 资源类型。数据型由扩展名映射（大小写不敏感）：`.shLib`→`shader-library`、`.tex`→`texture`、`.mesh`→`mesh`、`.res`→`resource`、其它→`file`。**源类型由显示提供者产出**：`shader-source`（shLib 内的实际编译源）、`csharp-source`（手写 C# 源）；**标记类型**：`shader-source-missing`（历史上编译进库、现在找不到源文件的路径 —— 仍产条目，不静默跳过）、`source-omitted`（明示略去的源目录，顶层条目） |
 
 约定：
 
+- **路径基准按种类区分**（editor-code-source-display）：数据型条目 `path` 相对资源根，与真实文件逐条一致；
+  源种类条目 `path` 相对**工程根**（源文件在资源根之外）；`source-omitted` 的 `path` 是取回目录（相对工程根）。
+  前端按 `kind` 区分渲染，不把两种基准混成一列读数。
 - 资产枚举只做**只读**：不导入、不改文件、不注册/释放资源条目。
 - 目录存在但无文件 = 合法空态：`ok=true` 且 `assets` 为空数组；门面未绑、根为空串、根目录不存在、
   枚举 IO 错误 = `ok=false` 且错误码 `E_ASSET_ROOT`（**不得**用空数组冒充成功）。
+- **源条目不得静默降级**：shLib 字节里的历史源路径没有对应源文件时仍产条目（`kind` = `shader-source-missing`），
+  不得丢弃；生成绑定源（`out/build/<preset>/codegen/bindings`）本批不显示，但必须有 `source-omitted` 标记条目
+  给出取回目录；C# 源根不可用（目录不存在 / 不可读）时 `list-assets` 回 `E_ASSET_ROOT` 并点名原因，
+  **不得**用空数组冒充成功。
 
 ## 3. 错误码
 
@@ -143,7 +145,7 @@
 | `E_INVALID_ARG` | 参数非法：`set-size` 的宽或高 ≤ 0、宽 ≤ 面板宽、类型不是整数；`set-title` 的 `title` 不是字符串 | 否（零原生调用） |
 | `E_UNDO_EMPTY` | `undo` 时该对象撤销槽为空 | 否（零原生调用） |
 | `E_BAD_MESSAGE` | 形状错误：不是 JSON 对象、缺 `type`、未知 `type`、缺 `requestId`、未知 `command`、缺必需 `objectId`、`args` 形状不符 | 否（零原生调用） |
-| `E_ASSET_ROOT` | 资产根不可用：资源注册表门面未绑定、根路径为空串、根目录不存在、枚举 IO 错误（含读文件信息失败）、门面底层抛错（错误码 1014）。`message` 必须点名是哪一种原因 | 是（`list-assets` 的枚举在引擎主线程命令执行内完成；错误在该 `requestId` 的结果里回） |
+| `E_ASSET_ROOT` | 资产根不可用：资源注册表门面未绑定、根路径为空串、根目录不存在、枚举 IO 错误、门面底层抛错（错误码 1014）；**源显示**所需的工程根 / C# 源根不可用，或 shLib 源映射失败（字节提取条数与声明不符）。`message` 必须点名是哪一种原因 | 是（`list-assets` 的枚举在引擎主线程命令执行内完成；错误在该 `requestId` 的结果里回） |
 
 约定：
 
@@ -173,11 +175,18 @@
 
 **底部通栏资产浏览器 dock**（`assets.html` + `assets.ts`，editor-asset-browser）：这是**独立面板单元**
 ——底部通栏的第二块 WebView2 由编辑器服务的第二个控制器加载，与右侧对象检查器分离（仍同一个原生壳
-窗口）。dock 内标题 + 表格 → `list-assets`（`value.assets` 渲染五行：路径 / 种类 / 大小 / 修改时间 /
-已注册）；点**刷新**按钮 → 重发 `list-assets` 重拉；收到 `assets-changed` 事件 → 重发 `list-assets`
-重拉（事件只提示有变化，条目本体靠重拉取）；空根（`assets` 为空数组）→ dock 显示空态文案，不是报错；
-`E_ASSET_ROOT` → dock 显示错误码与该消息并保留表格外的错误提示（不得显示成空列表）。dock 高由
+窗口）。dock 内标题 + 表格 → `list-assets`（`value.assets` 渲染**两列：路径 / 种类**，条目只有 `path` + `kind`
+两个字段，另显示「共 N 条」）；点**刷新**按钮 → 重发 `list-assets` 重拉；收到 `assets-changed` 事件 → 重发
+`list-assets` 重拉（事件只提示有变化，条目本体靠重拉取）；空根（`assets` 为空数组）→ dock 显示空态文案，
+不是报错；`E_ASSET_ROOT` → dock 显示错误码与该消息并保留表格外的错误提示（不得显示成空列表）。dock 高由
 `CASCADED_EDITOR_DOCK_HEIGHT` 配置（默认 240，运行期固定）。
+
+**前端按 `kind` 区分渲染**（editor-code-source-display）：数据型条目与源条目的路径基准不同（前者相对资源根、
+后者相对工程根，见 2.6），dock 不得把两者当成同一基准读数 —— 源种类显示中文种类名（`shader-source`→
+「着色器源文件」、`csharp-source`→「C# 源文件」）并在路径单元标注「相对工程根」；`shader-source-missing`
+显示「着色器源文件（源文件缺失）」；`source-omitted` 条目显示「生成绑定源（已略去）」并在路径单元标注取回目录。
+路径基准的判定只按 `kind`，不按扩展名猜。工程根由 `CASCADED_EDITOR_PROJECT_ROOT` 覆盖（默认资源根的上级），
+源显示开关 `CASCADED_EDITOR_SOURCE_DISPLAY`（默认 on，`off` 时不做源显示注册，程序集落默认提供者仍显）。
 
 ## 6. 示例往返
 

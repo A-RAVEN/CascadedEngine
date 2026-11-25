@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-008",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md；tasks.md；Scripting/Managed/Editor/PROTOCOL.md；openspec/specs/editor-asset-browser/spec.md",
+  "anchor": "design.md:30「path 用**相对工程根**的源路径（如 `CAResources/Shaders/Test/TestSimpleTriangle.slang`、`Scripting/Managed/Host.cs`）」；design.md:38「path/nodeId=相对工程根源路径」；spec.md:19/:33 同",
+  "claim": "nodeId/path 的语义被改掉但没有改协议。PROTOCOL.md:122-123 钉死「nodeId 稳定条目编号。v1 = path = 相对资源根的正斜杠路径」「path 相对资源根」；editor-asset-browser 规范的场景要求「nodeId MUST = path = 相对资源根路径」。源文件不在资源根（CAAssets）内，设计给的是相对工程根路径，于是同一批 list-assets 条目里出现两种基准的 path：数据型条目相对 CAAssets，源条目相对工程根，消费方（dock 页面、scripts、后续打开文件）无法区分，按相对资源根解释会拼出 CAAssets/CAResources/... 之类不存在的路径。tasks 2.3 只写「七字段形状不变」和登记 env，没有改 PROTOCOL.md、EditorWeb/src/protocol.ts、EditorProtocol.cs 的任务；design 也没把这项协议语义变化列进 Migration Plan。验收 3.1 只按写死期望比 path，不会暴露基准冲突。",
+  "evidence": "证据-溯源-008.md：PROTOCOL.md:122-123、editor-asset-browser spec:16 逐字引文；design.md:30/:38 与 EditorService.EnumerateAssets 里 relative=Path.GetRelativePath(root,file) 的基准；tasks 2.3 无协议文档改动。"
+}

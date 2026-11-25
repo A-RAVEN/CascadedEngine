@@ -1,0 +1,11 @@
+{
+  "claim_id": "主张-存在-001",
+  "face": "真实存在性",
+  "severity": "blocking",
+  "status": "未修复（只读攻击；未改工件）",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md；openspec/changes/editor-code-source-display/tasks.md",
+  "anchor": "design.md:9「C# 程序集 `Scripting.Managed.dll` 在 `out/build/<preset>/bin/`（**不在 CAAssets**），由 `Scripting/` 下 **38 个 .cs** 编译来；无 csharp-script 资产种类。」；spec.md:33「MUST 扫 `Scripting/`（env `CASCADED_EDITOR_CSHARP_SOURCE_ROOT` 可配）递归 `*.cs` 产每个源文件一条」；tasks.md:16「扫 Scripting/（env CASCADED_EDITOR_CSHARP_SOURCE_ROOT）递归 *.cs 产源条目」",
+  "problem": "「程序集由 `Scripting/` 下 38 个 .cs 编译来」这句是假的、不完整。真实编译输入 = 38 份手写源 + 生成绑定源：`Scripting/Managed/Scripting.Managed.csproj` 的 L40 把 `CascadedBindingDir` 默认为 `out\\build\\x64-debug\\codegen\\bindings`，L44 收 `$(CascadedBindingDir)\\*.Bindings.cs`，L56 用 `<Compile Include=\"@(CascadedBindingFile)\" />` 把它们编进同一个 `Scripting.Managed.dll`（L51 的报错文本原文：「里没有任何 *.Bindings.cs —— 绑定没有生成，托管侧不能凭空编译」）。现产物目录里 129 份 `*.Bindings.cs`（该目录下 .cs 总数也是 129），加 38 份手写源共 167 份，全部进这一个程序集。三份工件对生成绑定源零提及（`Bindings.cs`、`codegen`、`生成绑定` 三词在 design/tasks/spec 里各 0 命中）。后果两条：① 照工件实现，dll 条目被隐去之后，129 份真被编译进程序集的源文件永远不出现在资产浏览器里（占 167 份的 77%），既没有「略去了什么」的标记，也没有取回办法 = 静默降级；② tasks 3.1 的验收「源条目数 == 源文件数」两侧都取 `Scripting/` 递归口径，判不出这个缺口，这条验收在这一缺陷仍在时照样绿 = 假绿。",
+  "evidence": "见 `证据-存在-001.md`：① `Get-ChildItem Scripting -Recurse -Filter *.cs` 计数 = 38（全部在 `Scripting/Managed` 下）；② `Get-ChildItem out\\build\\x64-debug\\codegen\\bindings -Recurse -Filter *.Bindings.cs` 计数 = 129；③ 读 `Scripting/Managed/Scripting.Managed.csproj` 原文 L40/L44/L56 证明生成绑定源被 Compile 进来；④ 读 `out\\build\\x64-debug\\bin\\Scripting.Managed.dll` 存在（与工件「在 out/build/<preset>/bin/」一致）；⑤ 工件三文件对 `Bindings.cs|codegen|生成绑定` 零命中。",
+  "suggestion": "二选一并写进 design D3 + spec + tasks，不许保持现状：① 显式声明「本批只显示手写源，生成绑定源不在显示面」，同时把 129 份的位置（`out/build/<preset>/codegen/bindings/*.Bindings.cs`）与取回办法写进工件，并把 design.md:9 改成「由 `Scripting/` 下 38 个手写 .cs 加 `out/build/<preset>/codegen/bindings` 下 129 个生成的 `*.Bindings.cs` 编译来」；② 把生成绑定源纳入显示面（第二条源根 env，或默认源根同时覆盖两处），并把 tasks 3.1 的期望条目数从「源目录 .cs 数」改成写死的 38+129。无论选哪条，都要在 tasks 3.1 增一条能失败的红态：生成绑定源目录被改空/改名后，显示条目数必须按写死值变化（防「源条目数 == 源文件数」这类自证式判据继续假绿）。"
+}

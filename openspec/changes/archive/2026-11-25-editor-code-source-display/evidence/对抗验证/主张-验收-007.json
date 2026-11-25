@@ -1,0 +1,9 @@
+{
+  "id": "验收-007",
+  "face": "③红态与注册生效",
+  "severity": "Blocking",
+  "claim": "红态「提供者未注册→落默认 shLib 仍显」不可构造：提供者注册是产品静态表，当前 AssetDisplay.cs 只有 Register(kind, provider) 与 Resolve(kind)，没有 Unregister/Reset/Clear；全仓库也没有任何与源显示相关的自检开关（git grep SOURCE_DISPLAY|DISPLAY_PROVIDER|SourceDisplay 零命中），托管侧现有自检开关只有 no-runtime / no-dock-controller / no-facade / capture-dock。编辑器服务是进程级一次性状态机（Main.cpp 注释原文：「Shutdown 把状态落 4、没有复位路径」），tester 只能通过 WebSocket 读 list-assets，无法让「产品代码不注册该提供者」。要造出这个红态，必须新增产品侧开关或复位口，但 spec/design/tasks 都没有给这个 seam，tasks 3.1 却把它写成必过的红态项——执行者只能写成代码走读或干脆不写，这条验收恒绿。",
+  "location": "tasks.md 3.1「红态：源根空→源条目空不报错；**提供者未注册→落默认 shLib 仍显**（证注册真生效，非恒隐）」；design.md「红态：源根空 → 源条目空（不报错）；提供者未注册 → 落默认（shLib 仍显，证注册真生效）」；Scripting/Managed/Editor/AssetDisplay.cs「internal static void Register(string kind, IDisplayProvider provider)」/「internal static IDisplayProvider Resolve(string kind)」（无注销）；Test/GPUBackendTester/Main.cpp「**独立进程用例（design D8）**：`EditorService` 是进程级一次性状态机（`Shutdown` 把状态落 4、没有复位路径）」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-007.md",
+  "suggested_fix": "在 tasks 2.3 增一条显式 seam 并写进 spec/design：例如读 `CASCADED_EDITOR_SOURCE_DISPLAY=off`（每次注册或每次 list-assets 生效，照 `no-facade` 每次调用都判的先例），在 3.1 里同一进程内做差分：设为 off → shLib 条目出现（path/kind/size 写死期望），清掉 → shLib 消失且源条目出现（写死期望）。若不愿加开关，就删掉这条红态并把「非恒隐」的证据责任移到 1.1 的精确绑定场景（但 1.1 目前也没有落点，见主张-验收-008）。"
+}

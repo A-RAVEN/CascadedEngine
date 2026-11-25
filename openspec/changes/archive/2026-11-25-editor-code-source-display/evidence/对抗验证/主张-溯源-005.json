@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-005",
+  "face": "无中生有",
+  "severity": "falsePositive",
+  "artifact": "openspec/changes/editor-code-source-display/design.md",
+  "anchor": "design.md:9「C# 程序集 `Scripting.Managed.dll` 在 `out/build/<preset>/bin/`（**不在 CAAssets**）」",
+  "claim": "这一条属实：实测 Scripting.Managed.dll 在 out/build/x64-debug/bin/（另有一份 out/build/x64-debug/managed/ 副本），CAAssets 递归 0 份 .dll，顶层只有 CSharpProbe 目录和 VulkanShaderLibrary.shLib / D3D12ShaderLibrary.shLib 两份文件。CSharpHost/README.md:272 也写明托管产物拷到 out/build/x64-debug/bin/、与 CSharpHost.dll 同目录。未发现凭空。",
+  "evidence": "证据-溯源-005.md：三处 dll 的 Get-ChildItem 输出、CAAssets 顶层与递归 dll 计数、README 272 行原文。"
+}

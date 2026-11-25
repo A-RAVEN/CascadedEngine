@@ -1,0 +1,9 @@
+{
+  "id": "验收-013",
+  "face": "⑥截图视觉",
+  "severity": "Blocking",
+  "claim": "生效的 editor-asset-browser 视觉场景仍要求截图里出现 VulkanShaderLibrary.shLib / D3D12ShaderLibrary.shLib 两条程序集行（原文：「路径 MUST 含相对资源根全前缀：VulkanShaderLibrary.shLib / D3D12ShaderLibrary.shLib / CSharpProbe/Contrast.res / …」），而本 change 的增量 spec 只 MODIFIED 了「显示提供者」一条需求，没有改这条视觉需求。合并后同一份生效规范同时要求「截图 MUST 列出两个 shLib 路径」与「shLib 条目 MUST NOT 出现」——两条验收互斥：按旧场景验收本 change 永远不通过，按新要求验收旧场景永远不通过。这不是「截图看得见看不见」的细节，而是生效规范里的两条 MUST 不可能同时满足。",
+  "location": "openspec/specs/editor-asset-browser/spec.md「…路径 MUST 含相对资源根全前缀：VulkanShaderLibrary.shLib / D3D12ShaderLibrary.shLib / CSharpProbe/Contrast.res / CSharpProbe/Imported_A.res / CSharpProbe/Imported_B.res…」；openspec/changes/editor-code-source-display/specs/editor-asset-browser/spec.md 只有一条 MODIFIED 需求；specs/editor-code-source-display/spec.md「`Describe(shLib 上下文)` MUST NOT 产 shLib 自身条目」；tasks.md 3.2「**无 shLib/dll 程序集条目**」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-013.md",
+  "suggested_fix": "在增量 spec 里 MODIFIED 这条视觉需求：把预置资产行改成源条目（CAResources/Shaders/… 与 Scripting/… 的真实路径前缀、kind=shader-source/csharp-source），并写明 MUST NOT 出现 shLib/dll 行；或把旧场景限定为「未注册代码型提供者时的数据型资产根」。同时同步更新归档后的 openspec/specs 与 README 里的视觉验收描述。只加新场景、不替换旧场景不算修复。"
+}

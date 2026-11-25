@@ -1,0 +1,9 @@
+{
+  "claim_id": "主张-溯源-004",
+  "face": "无中生有",
+  "severity": "blocking",
+  "artifact": "openspec/changes/editor-code-source-display/design.md；specs/editor-code-source-display/spec.md",
+  "anchor": "design.md:9「`m_ShaderFiles` 键是 `cacore::PathHash`＝源路径**哈希**非路径串」；design.md:28「shLib 的 m_ShaderFiles 键是路径哈希、C# 拿不到源路径串，故**扫源目录约定**取源文件」；spec.md:19「源映射 MUST 走扫源目录约定（shLib 的 m_ShaderFiles 键是源路径哈希非路径串，C# 侧拿不到源路径串）」",
+  "claim": "「PathHash 只是哈希、不存路径串，所以 C# 拿不到源路径串」与源码和工件都不符。cacore::PathHash 是字符串包装类型：内部成员有 castl::string m_Name（HashKeys.h:316-319），构造时把路径写进 m_Name（:173/:177/:182），比较按 m_NameView（:267-275）；CodeGen 的 wrapper_traits<PathHash> 把 inner_type=castl::string 作为序列化数据（:479-484 get_data 返回 obj.string()）。实测两份 shLib 的字节里直接含长度前缀的源路径串（如 0x11 + 「Shaders/FinalBlit」，出现两次：键与 ShaderFileInfo.path），Vulkan 库 21 条、D3D12 库 16 条。C# 编辑器与 shLib 同进程、已有 System.IO 枚举/读文件能力（EditorService 就是 Directory.EnumerateFiles + FileInfo），读 CAAssets 下 shLib 字节做 ASCII 扫描即可拿到这些路径；「C# 拿不到源路径串」不成立。spec 把一条 MUST 建立在假前提上，design 的 Non-goal「程序集溯源」与 Risk「程序集内嵌源路径留身份重设计批」也随之站不住。",
+  "evidence": "证据-溯源-004.md：HashKeys.h 的 PathHash 全文要点与 wrapper_traits、shLib 字节的十六进制段、Vulkan 21 / D3D12 16 条 Shaders/ 串；另核 ResourceImportingSystem.cpp:120 用 key.Get() 组落盘路径，证明 PathHash 运行期必须携带路径串。"
+}

@@ -1,0 +1,5 @@
+﻿BUILD SUCCESSFUL
+============================================================
+BUILD_EXIT=0
+
+§5 极简后复跑：22 同进程两后端零差异；TestCodeSourceDisplay/TestEditorAssetBrowser/TestSourceImporters 独立 pass；CoreTests PASSED 26；绑定基线 0/0/0；--list 26。

@@ -120,6 +120,15 @@ namespace Scripting.Managed.Editor
         // 门面底层抛错）。不用 E_INVALID_ARG 兜底：那个码的触发定义是 set-* 的参数非法（PROTOCOL.md 第 3 节）。
         internal const string ErrorAssetRoot = "E_ASSET_ROOT";
 
+        // ---- 资产条目种类（editor-code-source-display 5.1；PROTOCOL.md 2.6 与 protocol.ts 三处镜像）----
+        // 条目只有 path + kind 两个字段（2026-11-25 用户裁定）：数据型种类由扩展名映射
+        //（AssetDisplayProviders.KindOf），源类型 / 标记类型由显示提供者产出；源条目的 path 基准是工程根
+        //（数据型是资源根），前端按这些 kind 区分渲染、不混基准。
+        internal const string AssetKindShaderSource = "shader-source";
+        internal const string AssetKindCSharpSource = "csharp-source";
+        internal const string AssetKindShaderSourceMissing = "shader-source-missing";
+        internal const string AssetKindSourceOmitted = "source-omitted";
+
         private static readonly HashSet<string> s_knownCommands = new HashSet<string>
         {
             "get-object", "list-objects", "set-title", "set-size", "undo", "list-assets",

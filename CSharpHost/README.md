@@ -110,7 +110,7 @@
 
 **门控与入口**：`CASCADED_EDITOR=1` 时 `Host.Tick` 每帧调 `Editor.EditorService.Tick`；`Host.Shutdown` 先停服务（`Stop("Host.Shutdown")`：停监听、断客户端、join 监听线程、关 WebView2 控制器与窗口）再关运行时。**脚本路径不建线程；门控开启时额外一个监听线程**（HttpListener 静态文件 + `/ws` 升级），网络线程只做协议解析与入队，命令统一在引擎主线程的下一次 `Tick` 执行，`result` 在命令执行完成之后才发出。
 
-**配置（五项，默认值与可配范围）**：
+**配置（七项，默认值与可配范围）**：
 
 | 变量 | 作用 | 默认 | 可配范围 |
 |---|---|---|---|
@@ -119,6 +119,8 @@
 | `CASCADED_EDITOR_PANEL_WIDTH` | 右侧对象检查器面板宽（像素） | `320` | `1`..`客户区宽-1`（越界明确禁用并点名范围） |
 | `CASCADED_EDITOR_DOCK_HEIGHT` | 底部资产浏览器 dock 高（像素） | `240` | `1`..`客户区高-1`（越界明确禁用并点名范围；运行期固定，无拖拽） |
 | `CASCADED_EDITOR_ASSET_ROOT` | 覆盖资产浏览器的资源根（只影响资产浏览；导入器仍按默认根扫描） | 仓库根 `CAAssets` | 任意已存在目录（供视觉验收的空根构造，不动用户文件） |
+| `CASCADED_EDITOR_PROJECT_ROOT` | 资产浏览器里**源条目**的路径基准（工程根） | 资源根的上级目录 | 任意已存在目录（测试/视觉验收传临时工程根） |
+| `CASCADED_EDITOR_SOURCE_DISPLAY` | 代码型资产「隐程序集显源」开关（off 时不做源显示注册，shLib/dll 落默认提供者仍显） | `on` | `on` / `off`（只有 `off` 关闭，不区分大小写） |
 
 其余开关：`CASCADED_EDITOR_SELFTEST=no-runtime`（**仅 Debug**：模拟 WebView2 运行时缺失 → 明确禁用、不崩）、`CASCADED_EDITOR_SELFTEST=no-dock-controller`（运行时正常、第一控制器建成，只让**底部 dock 的第二控制器**创建失败 → 明确禁用；no-runtime 在 NewWindow 前返回，覆盖不到这条分支）、`CASCADED_EDITOR_SELFTEST=no-facade`（跳过资源注册表门面绑定 → `list-assets` 必回 `E_ASSET_ROOT`，供资产浏览失败面用；**不限 Debug**）、`CASCADED_EDITOR_SELFTEST=capture-dock=<png 路径>`（dock 控制器就绪后每约 0.5 秒把 dock 当前渲染内容用 `CapturePreviewAsync` 覆盖落盘；供视觉验收抓窗，**不置前、不最小化、不移动用户窗口**）、`CASCADED_EDITOR_STOP=1`（主动停服务，测试收尾用）、`CASCADED_EDITOR_READINGS_FILE`（读数行同时追加到该文件，测试用）、`CASCADED_EDITOR_DISPLAY_PROOF=1`（可选屏幕捕获诊断）、`CASCADED_READBACK_FORCE_NO_BB_TRANSFER`（**仅 Debug**：强制窗口 backbuffer 回读走"能力不支持"拒绝分支，供红态）。
 
@@ -136,13 +138,39 @@ WebView2 控制器**加载 `spike.html`（原型窗），而不是三分区的 i
 **资产浏览器（editor-asset-browser）**：底部通栏**独立资产浏览器 dock**（第二个 WebView2 控制器加载
 `assets.html`，与右侧对象检查器分离），对应命令 `list-assets`（非对象作用域，无 `objectId`）：主线程
 命令执行内用门面 `IResourceRegistry::GetResourceRootPath` 取资源根、`Directory.EnumerateFiles` 递归枚举、
-`FileInfo` 取大小/修改时间、扩展名定种类（`.shLib` / `.tex` / `.mesh` / `.res` / 其它 → `file`）、
-`HasResource` 定已注册标志，条目形状与失败码见 `Scripting/Managed/Editor/PROTOCOL.md` 第 2.6 / 3 节。
+扩展名定种类（`.shLib` / `.tex` / `.mesh` / `.res` / 其它 → `file`）。条目**只有 path + kind 两个字段**
+（2026-11-25 用户裁定：不加强制固定元数据），dock 渲染**两列（路径 / 种类）**；条目形状与失败码见
+`Scripting/Managed/Editor/PROTOCOL.md` 第 2.6 / 3 节。
 每次成功枚举与上一次快照比对，有增删就广播 `assets-changed`（`fields: { added, removed }`，无
 `objectId`），客户端收到后重发 `list-assets`。目录存在但无文件 = `ok=true` 空数组；门面未绑 / 根空串 /
 根目录不存在 / 枚举 IO 错误 / 门面底层抛错一律 `E_ASSET_ROOT`（处理内捕获，**不穿出到 `Host.Tick`
 外层 catch** —— 那会让客户端收不到 result 而静默挂起）。门面表（编号 13）在门控开时按需绑定一次，
 门控关时零行为。
+
+**代码型源显示（editor-code-source-display）**：代码型资产**隐程序集、显源文件**。显示提供者按
+`(种类, 路径)` 注册（精确绑定 → 种类默认 → 默认提供者），生产注册点钉死
+`(shader-library, VulkanShaderLibrary.shLib)` / `(shader-library, D3D12ShaderLibrary.shLib)` /
+注册显示资源 `(csharp-script, Scripting.Managed.dll)`；路径不同的探针 shLib（如
+`ShaderLibraries/Browser.shLib`）落默认提供者仍显。shader 侧的源映射**从 shLib 字节读**：
+`m_ShaderFiles` 是 ShaderLibrary 的第一个字段（开头 uint64 条数，键按「uint64 长度 + ASCII」序列化，
+`m_ShaderFiles` 键与 `ShaderFileInfo.path` 都写源路径串），主线程按字节取出实际编译进库的源路径、
+映射 `CAResources/<路径>.slang`；C# 侧扫工程根下 `Scripting/` 的手写 `*.cs`（排除 `obj/`、`bin/`）。
+源条目 `kind` = `shader-source` / `csharp-source`，`path` = **相对工程根**（数据型仍是相对资源根）；
+缺源文件的历史路径仍产条目（`kind` = `shader-source-missing`），128 个生成绑定源
+（`out/build/<preset>/codegen/bindings`）本批不显示但有 `source-omitted` 标记条目给出取回目录。
+C# 源根不存在 / 不可读时 `list-assets` 回 `E_ASSET_ROOT` 点名原因（不静默空列表）。IO 全在主线程
+（读 shLib 字节 / 扫源 / 查源路径存在性），提供者纯投影。
+条目形状与路径基准见 `Scripting/Managed/Editor/PROTOCOL.md` 第 2.6 / 5 节；红态与验收见
+`Test/GPUBackendTester` 的 `TestCodeSourceDisplay`（独立进程；`CASCADED_EDITOR_SOURCE_DISPLAY=off` 时
+程序集落默认提供者仍显）。
+
+**源显示的视觉验收抓窗钩子（test 侧）**：`CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE=<png 路径>` —— 设了时
+`TestCodeSourceDisplay` 把它映射到编辑器既有的 `CASCADED_EDITOR_SELFTEST=capture-dock=<png>`（dock 控制器
+就绪后每约 0.5 秒用 `CapturePreviewAsync` 覆盖落盘，**不置前、不最小化、不移动用户窗口**）。抓窗前该用例会先
+**制造一次数据型增删**（临时写一个 `CaptureRefreshProbe.res` 再删掉）→ 两次 `assets-changed` 让 dock 重拉，
+把画面从红态（③ 源根非法留下的错误 banner）拉回「8 条源列表」这个正控状态；随后再推约 3 秒帧让 dock 画完，
+最后断言 PNG 非空（画面内容由视觉验收用 read_image 核对）。路径按 Wide 读写（中文文件名如
+`evidence/3.2-截图.png` 不被 ACP 转换弄坏）。该开关只由测试读，生产脚本不设。
 
 **单窗口三分区**：`NewWindow(1280, 720, "Cascaded 编辑器")` 建**一个**窗口（GetWindowCount 增量仍 1，
 MUST NOT 第二壳窗口）；`GetNativeWindowHandle` 返回 `HWND*`，解引用一次拿到父 HWND 贴两个 WebView2
@@ -449,6 +477,9 @@ ulong handle = ResourceImporterBindings.Create(new MyImporter());
 | `CASCADED_EDITOR_PANEL_WIDTH` | 右侧对象检查器面板宽（像素） | `320`（`1`..`客户区宽-1`） |
 | `CASCADED_EDITOR_DOCK_HEIGHT` | 底部资产浏览器 dock 高（像素） | `240`（`1`..`客户区高-1`；运行期固定） |
 | `CASCADED_EDITOR_ASSET_ROOT` | 覆盖资产浏览器的资源根（默认仓库根 `CAAssets`；只影响资产浏览枚举，不动用户文件） | 仓库根 `CAAssets` |
+| `CASCADED_EDITOR_PROJECT_ROOT` | 资产浏览器里源条目的路径基准（工程根；测试/视觉验收传临时工程根） | 资源根的上级目录 |
+| `CASCADED_EDITOR_SOURCE_DISPLAY` | 代码型资产「隐程序集显源」开关：`off` 时不做源显示注册，shLib/dll 落默认提供者仍显（同进程差分红态） | `on` |
+| `CASCADED_EDITOR_SOURCE_DISPLAY_CAPTURE` | 源显示视觉验收的抓窗钩子（**test 侧**，`TestCodeSourceDisplay` 读）：设了就映射到 `capture-dock=<png>`，list-assets 断言后再推约 3 秒帧把 dock 画面落盘到该 PNG 并断言非空 | 不设 |
 | `CASCADED_EDITOR_SELFTEST=no-runtime` | **仅 Debug**：模拟 WebView2 运行时缺失，验证"明确禁用、不崩"路径 | 不设 |
 | `CASCADED_EDITOR_SELFTEST=no-dock-controller` | 运行时正常、第一控制器建成，只让底部 dock 的第二控制器创建失败（no-runtime 覆盖不到这条分支）；编辑器明确禁用 | 不设 |
 | `CASCADED_EDITOR_SELFTEST=no-facade` | 资产浏览的门面未绑红态：托管侧**跳过**资源注册表门面（编号 13）绑定，`list-assets` 必回 `E_ASSET_ROOT`（`TestEditorAssetBrowser` 用；**不限 Debug** —— 回归在两个配置下都要能跑这条失败面） | 不设 |

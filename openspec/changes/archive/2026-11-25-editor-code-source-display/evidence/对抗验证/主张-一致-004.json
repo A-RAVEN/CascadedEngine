@@ -1,0 +1,9 @@
+{
+  "id": "主张-一致-004",
+  "face": "工件一致性",
+  "severity": "blocking",
+  "claim": "面⑥（枚举整合与既有条目计数）：排序本身不冲突——现有代码 EditorService.cs:1133 按 `string.CompareOrdinal(left.Path, right.Path)` 排序，MODIFIED :5、design :42、tasks :17 都沿用「path 序数」，去重键 nodeId 在新源条目上等于 path，未发现序数排序与去重键互斥。冲突在枚举整合后的条目计数语义：生效规范 :16 要求返回条目与真实文件逐条一致，:21 要求「向资源根新增一个文件，再发 list-assets → 第二次结果 MUST 含新增文件条目；条目数 MUST +1」；新行为把 .shLib 条目隐去、改产 16 条 .slang 源条目（spec :19/:24）。于是往资源根新增一个 .shLib 时：新增文件条目不会出现（被隐去），条目数变成 +16（源根可解析）或 +0（源根空），两条既有 MUST 都假。本 change 只 MODIFY 了显示提供者要求，没有 MODIFY :16/:21。现有 TestEditorAssetBrowser 的刷新用例新增的是 `Added/Extra.mesh`（Main.cpp:6793），走默认提供者仍 +1，所以这条冲突不会被现有测试抓到。",
+  "location": "openspec/specs/editor-asset-browser/spec.md:16「返回条目 MUST 与真实文件逐条一致（path/nodeId/sizeBytes/kind/modifiedUtc/registered/children 七项）；nodeId MUST = path = 相对资源根路径」、:21「第二次结果 MUST 含新增文件条目；条目数 MUST +1」；openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md:19「MUST NOT 产 shLib 自身条目，MUST 扫源目录……递归 `*.slang`」、:24「结果 MUST NOT 含 shLib 条目；MUST 含每个 .slang 源条目……源条目数 MUST 等于源目录 .slang 文件数」；openspec/changes/editor-code-source-display/specs/editor-asset-browser/spec.md:5「按 nodeId 去重、按 path 序数排序」；Scripting/Managed/Editor/EditorService.cs:1133「entries.Sort((left, right) => string.CompareOrdinal(left.Path, right.Path));」；Test/GPUBackendTester/Main.cpp:6793「const std::filesystem::path addedRelative = \"Added/Extra.mesh\";」",
+  "evidence_ref": "证据-一致-004.md",
+  "suggested_fix": "MODIFY 生效规范 :16/:21，把「真实文件」与「+1」限定到「每个输入文件产出的条目集合」：资源根内数据型文件仍一文件一条目、新增 +1；代码型文件（.shLib）不产自身条目、新增后条目数变化等于其源文件条目数（或明确「代码型文件不参与该 +1 场景」）。同时在 tasks 3.1 增加一条能变红的刷新断言：向临时资源根新增一个 .shLib，断言 shLib 条目不存在、源条目数 == .slang 文件数、assets-changed 的 added/removed 口径与写死值一致；否则现有 .mesh 夹具永远看不到这条冲突。若决定「代码型文件新增不触发刷新语义」，就把这句写进规范并给对应断言，不能留给实现自由选择。"
+}

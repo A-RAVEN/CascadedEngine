@@ -1,0 +1,9 @@
+{
+  "id": "验收-004",
+  "face": "②源条目写死期望",
+  "severity": "Blocking",
+  "claim": "`.cs` 源条目的 registered 期望无法独立写死：「registered=true 当程序集存在」没有定义「程序集存在」的探测口径。实测托管程序集在 out/build/x64-debug/bin/Scripting.Managed.dll（恒存在，因为编辑器正跑在它里面），而临时工程根下没有这个 dll；若按 Assembly.Location 探测则恒 true、按「工程根 + 注册 path」探测则恒 false，两种口径给出相反期望，且任一恒真/恒假实现都能与其中一种写死期望对上——这条断言因此不能区分「正确实现」与「硬编码常数」。design 的 Open Questions 只定了 dll 路径来源（注册写死 vs Assembly.Location），没定存在性探测。",
+  "location": "openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md「registered=true 当程序集存在」；design.md「C# 源条目 registered=dll 是否视为注册——dll 不在注册表，约定 registered=true 当程序集存在」与「C# dll 路径如何确定（注册时写死 Scripting.Managed.dll vs 取 Assembly.Location）——取注册指明 + 默认 Scripting.Managed.dll」；tasks.md 2.2「registered=true 当程序集存在」与 3.1「.slang/.cs 源条目逐条 path/kind/sizeBytes/registered==写死期望」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-004.md",
+  "suggested_fix": "在 spec + design 钉死可夹具控制的口径：`registered = File.Exists(Path.Combine(projectRoot, 注册的显示资源 path))`（如 `<临时工程根>/Scripting.Managed.dll`），并让 tester 夹具先创建该文件断言 registered=true、再删除断言 registered=false（两态都写死在用例里）。若采用 Assembly.Location，则必须明写「该值在本进程恒 true，验收只能断言 true」并说明为什么这不算恒真判据；不允许两种口径并存。"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "验收-014",
+  "face": "⑥截图视觉",
+  "severity": "misleading",
+  "claim": "3.2 的「无 shLib/dll 程序集条目」只在「夹具足够小、全表可见」时才可能失败，而工件没有钉夹具内容、期望条数或可见行：执行者用真实根（同样满足「含 shLib+.slang+注册 C#+.cs」的字面）时该断言不可失败——dock 默认高 240px，上批视觉证据自己写了「第 8 条在滚动区下」；真实根排序后共 59 条（隐去两条 shLib 后 57 条），前 16 行全是 CAResources/*.slang，Scripting/*.cs 从第 20 位起、两条 shLib 若未被隐去落在第 20 与第 59 位；CapturePreviewAsync 只抓 dock 当前视口，顶部截图里既看不到任何 .cs 行，也看不到 shLib 行。页面本来有「共 N 条」摘要文本可写死核对，工件没有写。于是同一句验收在两种都字面合规的夹具下，一种是能失败的（小临时根）、一种是永远绿的（真实根），判据不可移植、也无法从 evidence 复现。",
+  "location": "tasks.md 3.2「…CapturePreviewAsync 抓窗（不前置，AGENTS §2）+ read_image 核对 dock 显示 .slang/.cs 源文件（kind=shader-source/csharp-source）、**无 shLib/dll 程序集条目**。验收：evidence/3.2-截图.png + read_image 核对记录；抓不到/不符判不通过」；Scripting/Managed/Editor/EditorService.cs「默认 DefaultDockHeight=240，CASCADED_EDITOR_DOCK_HEIGHT 可配」；Scripting/Managed/Editor/EditorWindow.cs「m_DockCaptureTask = m_DockController.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);」；EditorWeb/src/assets.ts「summaryEl.textContent = `共 ${assets.length} 条`;」；archive/2026-11-25-source-importers-png-obj/evidence/3.2-视觉核对.md「第 8 条在滚动区下」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-014.md",
+  "suggested_fix": "在 3.2 钉死夹具与读数：① 临时工程根固定为 shLib 1 条 + .slang 2 条 + .cs 2 条 + .res 1 条（文件名与字节写死）；② 期望摘要文本「共 5 条」（16/38 那套真实根数量另算，不许混用），截图必须包含该文本；③ 若坚持用真实根，则调大 CASCADED_EDITOR_DOCK_HEIGHT 并把顶部 16 条 .slang、.cs 段与两条 shLib 位置分两张图（滚动前后）核对，或在 readings 里落一条 list-assets 条目清单，截图只负责证明渲染列正确。无论哪一条，都要有可数的期望值。"
+}

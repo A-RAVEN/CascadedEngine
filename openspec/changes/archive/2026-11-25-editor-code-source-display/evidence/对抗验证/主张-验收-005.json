@@ -1,0 +1,9 @@
+{
+  "id": "验收-005",
+  "face": "②源条目写死期望",
+  "severity": "misleading",
+  "claim": "工件把「Scripting/ 下 38 个 .cs」当作源文件总数写死，但实测这 38 个里有 2 个是被 git 忽略的构建产物（Scripting/Managed/obj/Debug/net8.0/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs 与 Scripting.Managed.AssemblyInfo.cs），git 只跟踪 36 个 .cs。provider 按工件写「递归 *.cs」扫 Scripting 时会把 obj 产物当源码显示；于是「源条目数==源文件数」与 proposal「Scripting（38 个 .cs）」的期望值随「有没有构建过」在 36/38 之间漂移：清洁检出上写死 38 会红，构建后写死 36 会红，而两种红都指向环境而不是产品缺陷。视觉验收用真实根时还会把 AssemblyInfo 之类生成文件当成「C# 源文件」展示。",
+  "location": "proposal.md「源目录约定 CAResources/Shaders（16 .slang）/ Scripting（38 个 .cs）」；design.md「由 `Scripting/` 下 **38 个 .cs** 编译来」；specs/editor-code-source-display/spec.md「MUST 扫 `Scripting/`…递归 `*.cs` 产每个源文件一条」；tasks.md 2.2「扫 Scripting/…递归 *.cs」；Scripting/Managed/obj/Debug/net8.0/*.cs",
+  "evidence_ref": "evidence/对抗验证/证据-验收-005.md",
+  "suggested_fix": "在 spec/design/tasks 三处钉死排除规则（跳过路径段 obj 与 bin，或以 git 跟踪集合为准），把计数改成 36；tester 用例增加一条红态：在 `Scripting/Managed/obj/Debug/net8.0/` 下放一个已知 .cs，断言它 MUST NOT 成为 csharp-source 条目（写死期望条目数不变）。若决定显示生成源，则必须显式声明并把 129 份 Bindings.cs 的取回办法与计数写进工件（与本轮另一面「存在性」的发现一并处置）。"
+}

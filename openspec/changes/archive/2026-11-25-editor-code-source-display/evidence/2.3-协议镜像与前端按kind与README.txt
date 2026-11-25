@@ -1,0 +1,100 @@
+# evidence 2.3：协议三处镜像（源条目路径基准）+ 前端按 kind 区分 + README 对拍
+
+生成时间：2026-11-25。只读命令产出。
+
+## ① 四个新种类串在「事实源 / 两个镜像」里逐字出现
+
+* shader-source
+    PROTOCOL.md（唯一事实源）：3 处
+      例：122: | `nodeId` | string | 稳定条目编号。数据型种类 = `path` = **相对资源根**的正斜杠路径；源种类（`shader-source` / `csharp-source`）= `path` = **相对工程根**的正斜杠路径；标记条目（`source-omitted`）的 `nodeId` 是 `path` 加上 `#omitted-sources` 后缀（同一路径不会与源条目重号） |
+    protocol.ts（TS 镜像）：2 处
+      例：20: * 数据型条目 nodeId = path = 相对资源根；源种类（shader-source / csharp-source）nodeId = path = 相对工程根；
+    EditorProtocol.cs（C# 镜像）：1 处
+      例：126: internal const string AssetKindShaderSource = "shader-source";
+* csharp-source
+    PROTOCOL.md（唯一事实源）：3 处
+      例：122: | `nodeId` | string | 稳定条目编号。数据型种类 = `path` = **相对资源根**的正斜杠路径；源种类（`shader-source` / `csharp-source`）= `path` = **相对工程根**的正斜杠路径；标记条目（`source-omitted`）的 `nodeId` 是 `path` 加上 `#omitted-sources` 后缀（同一路径不会与源条目重号） |
+    protocol.ts（TS 镜像）：2 处
+      例：20: * 数据型条目 nodeId = path = 相对资源根；源种类（shader-source / csharp-source）nodeId = path = 相对工程根；
+    EditorProtocol.cs（C# 镜像）：1 处
+      例：127: internal const string AssetKindCSharpSource = "csharp-source";
+* source-missing
+    PROTOCOL.md（唯一事实源）：4 处
+      例：124: | `kind` | string | 种类。数据型由扩展名映射（大小写不敏感）：`.shLib`→`shader-library`、`.tex`→`texture`、`.mesh`→`mesh`、`.res`→`resource`、其它→`file`。**源种类由显示提供者产出**：`shader-source`（shLib 内的实际编译源）、`csharp-source`（手写 C# 源）；**标记种类**：`source-missing`（缺源文件的存在性标记，只出现在子条目里）、`source-omitted`（明示略去的源目录，顶层条目） |
+    protocol.ts（TS 镜像）：3 处
+      例：22: * 挂一个 source-missing 标记子条目。
+    EditorProtocol.cs（C# 镜像）：1 处
+      例：128: internal const string AssetKindSourceMissing = "source-missing";
+* source-omitted
+    PROTOCOL.md（唯一事实源）：5 处
+      例：122: | `nodeId` | string | 稳定条目编号。数据型种类 = `path` = **相对资源根**的正斜杠路径；源种类（`shader-source` / `csharp-source`）= `path` = **相对工程根**的正斜杠路径；标记条目（`source-omitted`）的 `nodeId` 是 `path` 加上 `#omitted-sources` 后缀（同一路径不会与源条目重号） |
+    protocol.ts（TS 镜像）：3 处
+      例：21: * source-omitted 的 path 是取回目录（相对工程根）。children 为投影预留：数据型恒空，源条目在源文件缺失时
+    EditorProtocol.cs（C# 镜像）：1 处
+      例：129: internal const string AssetKindSourceOmitted = "source-omitted";
+
+## ② 协议版本与七字段形状未变
+
+* EditorProtocol.cs `internal const int Version = 1;`：1 处
+* protocol.ts `export const PROTOCOL_VERSION = 1 as const;`：1 处
+* AssetDisplay.cs 的 AssetEntry.ToJson 七字段赋值：7 处
+    42: ["nodeId"] = NodeId,
+    43: ["path"] = Path,
+    44: ["kind"] = Kind,
+    45: ["sizeBytes"] = SizeBytes,
+    46: ["modifiedUtc"] = ModifiedUtc,
+    47: ["registered"] = Registered,
+    48: ["children"] = children,
+* PROTOCOL.md 2.6 字段表行：7 行
+
+## ③ 前端按 kind 区分渲染（源型 / 数据型不混路径基准）
+
+* isSourceKind：3 处
+    assets.ts:19 import { isSourceKind, PROTOCOL_VERSION, SOURCE_MISSING_KIND, SOURCE_OMITTED_KIND } from './protocol';
+    assets.ts:96 const isSource = isSourceKind(entry.kind);
+* SOURCE_KINDS：2 处
+    protocol.ts:40 export const SOURCE_KINDS = ['shader-source', 'csharp-source'] as const;
+    protocol.ts:51 return (SOURCE_KINDS as readonly string[]).includes(kind);
+* SOURCE_MISSING_KIND：3 处
+    assets.ts:19 import { isSourceKind, PROTOCOL_VERSION, SOURCE_MISSING_KIND, SOURCE_OMITTED_KIND } from './protocol';
+    assets.ts:99 const missingMarker = entry.children.some((child) => child.kind === SOURCE_MISSING_KIND);
+* SOURCE_OMITTED_KIND：3 处
+    assets.ts:19 import { isSourceKind, PROTOCOL_VERSION, SOURCE_MISSING_KIND, SOURCE_OMITTED_KIND } from './protocol';
+    assets.ts:97 const isOmitted = entry.kind === SOURCE_OMITTED_KIND;
+* KIND_LABELS：2 处
+    assets.ts:22 const KIND_LABELS: Record<string, string> = {
+    assets.ts:101 const kindText = KIND_LABELS[entry.kind] ?? entry.kind;
+* PATH_BASE_SOURCE：3 处
+    assets.ts:30 const PATH_BASE_SOURCE = '路径相对工程根';
+    assets.ts:100 const pathBase = isOmitted ? PATH_BASE_OMITTED : isSource ? PATH_BASE_SOURCE : PATH_BASE_DATA;
+* cell.title = title：1 处
+    assets.ts:121 cell.title = title;
+
+## ④ check_csharp_host_readme（新 env 必须登记 README；脚本已把编辑器侧 C# 纳入扫描）
+
+命令：python Tools/check_csharp_host_readme.py
+  ABI 版本：README v12 / 生成 kEngineApiVersion=12
+  函数表大小：README 56 字节 / 生成 static_assert 56 字节
+  接口编号表：README 13 行 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] / 生成头 13 项 / EngineApi 2 个字段 / C# 13 个常量
+  探针开关：代码里读到 27 个，README 表里 43 个
+  问题 0 处
+  exit=0（期望 0）
+
+## ⑤ 本 change 改到的文件（核心资源接口 / 门面头零改动）
+
+命令：git status --porcelain（本 change 的文件；未跟踪目录只列本 change 的）
+   M CSharpHost/README.md
+   M EditorWeb/assets.html
+   M EditorWeb/src/assets.ts
+   M EditorWeb/src/protocol.ts
+   M Scripting/Managed/Editor/AssetDisplay.cs
+   M Scripting/Managed/Editor/EditorProtocol.cs
+   M Scripting/Managed/Editor/EditorService.cs
+   M Scripting/Managed/Editor/PROTOCOL.md
+   M Test/GPUBackendTester/Main.cpp
+   M Tools/check_csharp_host_readme.py
+  ?? Scripting/Managed/Editor/DisplayProviders/（本 change 新增的两个提供者文件）
+  （另：openspec/changes/editor-code-source-display/ 是本 change 的工件目录，未跟踪。）
+
+命令：git diff --name-only -- CACore GeneralResources（核心资源接口 / 门面头）
+  改动文件数：0（期望 0）

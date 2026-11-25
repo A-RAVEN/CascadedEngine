@@ -1,0 +1,9 @@
+{
+  "id": "验收-003",
+  "face": "①装配条目隐去",
+  "severity": "misleading",
+  "claim": "「注册显示资源去重」场景不可构造、判据恒绿：去重键是 nodeId，而唯一被 MUST 注册的显示资源（csharp-script，path=Scripting.Managed.dll）其提供者产出的是 .cs 源路径条目（Scripting/...），与注册 path 永不相等；把 Scripting.Managed.dll 放进 CAAssets 只会在文件枚举里多出一条 kind=file 的 dll 条目，仍与 .cs 条目的 nodeId 不重复。于是「注册 path 若已在 CAAssets 枚举到 MUST 去重（不重复引入该 path 条目）」在现有工件里没有任何可构造的重复实例，tasks 2.3 的「去重（注册 path 已在 CAAssets 不重复）」无论实现对不对都绿——它既不能证明去重代码存在，也不能证明去重不误删。",
+  "location": "openspec/changes/editor-code-source-display/specs/editor-code-source-display/spec.md「注册显示资源 path 若已在 CAAssets 枚举到 MUST 去重（不重复引入该 path 条目）」与「MUST NOT 重复引入该 path 条目（按 nodeId 去重）」；tasks.md 2.3「去重（注册 path 已在 CAAssets 不重复）」与 3.1；design.md「注册显示资源的 path 若已在 CAAssets 枚举到（如 shLib），不重复引入（以文件枚举那条为准）」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-003.md",
+  "suggested_fix": "二选一：① 删掉这个场景与 tasks 2.3 的去重验收（唯一 MUST 注册的显示资源结构上不可能重复），并明写「去重只对未来提供者自己产出同 path 条目的显示资源有意义」；② 造一个能失败的实例：注册第二个显示资源（例如 shader-library 也通过显示资源注册同一 shLib path），其提供者产出与该 path 相同的 nodeId，断言结果恰好一条；再补一条红态「去掉去重代码后必须出现两条」——否则不从工件里删掉就会留下一条恒绿验收。"
+}

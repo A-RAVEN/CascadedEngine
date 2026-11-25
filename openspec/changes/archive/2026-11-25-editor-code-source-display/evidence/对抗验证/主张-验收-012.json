@@ -1,0 +1,9 @@
+{
+  "id": "验收-012",
+  "face": "⑤源增删事件",
+  "severity": "misleading",
+  "claim": "「源增删→assets-changed」没有写 slаng 与 .cs 两条源根各做一次，也没有写「每个提供者都必须每次重扫」：两个代码型提供者是两套独立实现（ShaderSourceDisplayProvider 扫 CAResources/Shaders、CSharpSourceDisplayProvider 扫 Scripting），任何一个把源列表缓存到首次扫描，只有另一个重扫时，单条「源增删」验收不会红。spec 的两条场景也只覆盖「预置源 → list-assets」的一次性结果，没有覆盖第二次枚举的增删。",
+  "location": "tasks.md 3.1「源增删→assets-changed」；specs/editor-code-source-display/spec.md 要求 4「…+ 源增删 assets-changed +…」；specs/editor-code-source-display/spec.md「该提供者 MUST NOT 产 dll 条目，MUST 扫 `Scripting/`…递归 `*.cs`」与「MUST 扫源目录（默认 `CAResources/Shaders`…）递归 `*.slang`」",
+  "evidence_ref": "evidence/对抗验证/证据-验收-012.md",
+  "suggested_fix": "把「源增删」拆成四条写死：① 向 CAResources/Shaders 新增 1 份 .slang → 恰好 1 条事件、added=1；② 删除该 .slang → removed=1；③ 向 Scripting 新增 1 份 .cs → 恰好 1 条、added=1；④ 删除该 .cs → removed=1。每条都断言对应条目出现/消失（写死 path），并要求两个提供者都不缓存（事件证明重扫）。若实现要允许缓存，必须在 spec 明写缓存失效规则并给出对应的可失败验收。"
+}
